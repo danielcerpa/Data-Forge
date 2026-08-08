@@ -138,8 +138,32 @@ export function calculateDatasetMetrics(data, headers) {
   });
 
   const integrityPct = Math.max(0, Math.round(((totalCells - missingCells) / totalCells) * 1000) / 10);
-  const jsonStr = JSON.stringify(data);
-  const memoryKB = Math.round((jsonStr.length * 2) / 1024);
+  // Estimate actual CSV file size in bytes rather than in-memory JSON size
+  let csvBytes = 0;
+  try {
+    const encoder = new TextEncoder();
+    const headerStr = headers.join(',') + '\n';
+    csvBytes += encoder.encode(headerStr).length;
+    
+    data.forEach(row => {
+      const rowStr = headers.map(col => {
+        const val = row[col];
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }).join(',') + '\n';
+      csvBytes += encoder.encode(rowStr).length;
+    });
+  } catch (e) {
+    csvBytes = headers.join(',').length + 1;
+    data.forEach(row => {
+      csvBytes += headers.map(col => String(row[col] ?? '')).join(',').length + 1;
+    });
+  }
+  const memoryKB = Math.round(csvBytes / 1024) || 1;
 
   return {
     integrityPct,

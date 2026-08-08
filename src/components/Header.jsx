@@ -15,7 +15,7 @@ export default function Header({ activeTab, setActiveTab, theme, toggleTheme }) 
         {/* Brand Logo */}
         <div className="brand-logo" onClick={() => setActiveTab('table')}>
           <Logo size={38} />
-          <span>FjordGrid</span>
+          <span>Data Forge</span>
         </div>
 
         {/* Minimal Forge Navigation */}

@@ -378,19 +378,29 @@ export function exportToJSON(data, filename = 'exported_dataset.json') {
   document.body.removeChild(link);
 }
 
-/**
- * Exporta el dataset a formato Excel (.xlsx)
- */
-export function exportToExcel(data, headers, filename = 'exported_dataset.xlsx') {
-  const exportable = data.map(row => {
-    const r = { ...row };
-    delete r._id;
-    return r;
-  });
-
-  const worksheet = XLSX.utils.json_to_sheet(exportable, { header: headers });
+export function exportToExcel(data, headers, filename = 'exported_dataset.xlsx', workbookSheets = null) {
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Dataset");
+
+  if (workbookSheets && Object.keys(workbookSheets).length > 0) {
+    Object.entries(workbookSheets).forEach(([sheetName, sheetInfo]) => {
+      const exportable = sheetInfo.data.map(row => {
+        const r = { ...row };
+        delete r._id;
+        return r;
+      });
+      const worksheet = XLSX.utils.json_to_sheet(exportable, { header: sheetInfo.headers });
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    });
+  } else {
+    const exportable = data.map(row => {
+      const r = { ...row };
+      delete r._id;
+      return r;
+    });
+    const worksheet = XLSX.utils.json_to_sheet(exportable, { header: headers });
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Dataset");
+  }
+
   XLSX.writeFile(workbook, filename);
 }
 

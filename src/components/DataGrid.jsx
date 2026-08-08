@@ -621,15 +621,15 @@ export default function DataGrid({
                     height: '38px', 
                     fontSize: '12.5px', 
                     fontWeight: 600,
-                    color: '#ef4444',
-                    borderColor: '#fca5a5',
-                    backgroundColor: '#fff1f2',
+                    color: '#ffffff',
+                    borderColor: 'var(--status-critical)',
+                    backgroundColor: 'var(--status-critical)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px'
                   }}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={14} color="#ffffff" />
                   <span>Quitar Comparación</span>
                 </button>
               </>
@@ -660,8 +660,8 @@ export default function DataGrid({
                 style={{
                   padding: '6px 12px',
                   fontSize: '12px',
-                  backgroundColor: showOnlyAnomalies ? 'var(--status-critical-bg)' : 'var(--bg-surface)',
-                  color: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--text-secondary)',
+                  backgroundColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--bg-surface)',
+                  color: showOnlyAnomalies ? '#ffffff' : 'var(--text-secondary)',
                   borderColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--border-color)',
                   display: 'flex',
                   alignItems: 'center',
@@ -672,7 +672,7 @@ export default function DataGrid({
                   height: '36px'
                 }}
               >
-                <AlertCircle size={14} color={showOnlyAnomalies ? '#ef4444' : 'var(--text-muted)'} />
+                <AlertCircle size={14} color={showOnlyAnomalies ? '#ffffff' : 'var(--text-muted)'} />
                 <span>{showOnlyAnomalies ? 'Ver todos' : 'Filtrar anomalías'}</span>
               </button>
 

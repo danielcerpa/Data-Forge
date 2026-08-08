@@ -34,7 +34,28 @@ import {
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
-export default function OperationsPanel({ data, headers, onUpdateData, fileName, columnTypes = {}, onShowNotification, isAnalyzed, setIsAnalyzed }) {
+export default function OperationsPanel({ 
+  data, 
+  headers, 
+  onUpdateData, 
+  fileName, 
+  columnTypes = {}, 
+  onShowNotification, 
+  isAnalyzed, 
+  setIsAnalyzed,
+  excelFile,
+  sheetNames = [],
+  currentSheet = '',
+  workbookSheets = {},
+  onUpdateWorkbook,
+  onSwitchSheet
+}) {
+  const isExcel = !!excelFile && sheetNames && sheetNames.length > 1;
+  const [scanTarget, setScanTarget] = useState('sheet'); // 'sheet' or 'workbook'
+  const [activeScanTarget, setActiveScanTarget] = useState('sheet');
+  const [workbookStats, setWorkbookStats] = useState(null);
+  const [showApplyConfirm, setShowApplyConfirm] = useState(false);
+
   // Local duplicate state to guarantee instant UI rendering transitions
   const [localIsAnalyzed, setLocalIsAnalyzed] = useState(isAnalyzed);
 
@@ -340,6 +361,8 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
     }
   }, [data, headers, dateColumnDetails, timeColumnDetails]);
 
+  const displayStats = activeScanTarget === 'workbook' ? (workbookStats || anomaliesStats) : anomaliesStats;
+
   // Set default format selections for columns
   useEffect(() => {
     try {
@@ -384,11 +407,83 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
     setIsScanning(true);
     setScanProgress(0);
     setShowSummary(false);
+    setActiveScanTarget(scanTarget);
 
     let progressVal = 0;
-    
+
+    // Calcular estadísticas de todo el libro si es la opción seleccionada
+    if (isExcel && scanTarget === 'workbook') {
+      let totalDuplicates = 0;
+      let totalMissing = 0;
+      let totalInconsistentDates = 0;
+      let totalInconsistentTimes = 0;
+
+      Object.entries(workbookSheets).forEach(([sName, sInfo]) => {
+        const sheetData = sInfo.data;
+        const sheetHeaders = sInfo.headers;
+
+        // Calcular duplicados
+        const seen = new Set();
+        let sheetDuplicates = 0;
+        sheetData.forEach(row => {
+          if (!row) return;
+          const fingerprint = sheetHeaders.map(col => String(row[col] ?? '')).join('|||');
+          if (seen.has(fingerprint)) {
+            sheetDuplicates++;
+          } else {
+            seen.add(fingerprint);
+          }
+        });
+        totalDuplicates += sheetDuplicates;
+
+        // Calcular nulos
+        let sheetMissing = 0;
+        sheetData.forEach(row => {
+          if (!row) return;
+          sheetHeaders.forEach(col => {
+            const val = row[col];
+            if (val === null || val === undefined || String(val).trim() === '') {
+              sheetMissing++;
+            }
+          });
+        });
+        totalMissing += sheetMissing;
+
+        // Columnas de fechas/horas
+        const dateCols = sheetHeaders.filter(col => {
+          const isDateType = sInfo.columnTypes[col] === 'date';
+          const name = col.toLowerCase();
+          return isDateType || name.includes('fecha') || name.includes('date') || name.includes('creado') || name.includes('created');
+        });
+
+        const timeCols = sheetHeaders.filter(col => {
+          const name = col.toLowerCase();
+          return name.includes('hora') || name.includes('time');
+        });
+
+        // Fechas inconsistentes
+        dateCols.forEach(col => {
+          const formats = detectDateFormatsForColumn(sheetData, col) || [];
+          if (formats.length > 1) totalInconsistentDates++;
+        });
+
+        // Horas inconsistentes
+        timeCols.forEach(col => {
+          const formats = detectTimeFormatsForColumn(sheetData, col) || [];
+          if (formats.length > 1) totalInconsistentTimes++;
+        });
+      });
+
+      setWorkbookStats({
+        duplicateCount: totalDuplicates,
+        missingCount: totalMissing,
+        inconsistentDatesCount: totalInconsistentDates,
+        inconsistentTimesCount: totalInconsistentTimes
+      });
+    }
+
     const interval = setInterval(() => {
-      progressVal += 4;
+      progressVal += 2;
       
       if (progressVal >= 100) {
         progressVal = 100;
@@ -402,7 +497,7 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
       }
       
       setScanProgress(progressVal);
-    }, 100);
+    }, 60);
   };
 
   const handleConfirmSummary = () => {
@@ -413,11 +508,10 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
     }
   };
 
-  const handleApplyClean = () => {
+  const handleApplyClean = (target = 'sheet') => {
     try {
       const finalNullFillValue = nullFillValue === 'custom' ? customNullValue : nullFillValue;
-      
-      const cleaned = sanitizeDataset(data, headers, {
+      const cleanOptions = {
         removeDuplicates,
         trimWhitespace,
         fillNulls: isNullsOpen,
@@ -428,12 +522,27 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         columnTimeFormats: isTimesOpen ? columnTimeFormats : {},
         standardizeTextCase: isTextCaseOpen,
         textCaseOption: isTextCaseOpen ? textCaseOption : 'none'
-      });
+      };
 
-      onUpdateData(cleaned);
-      if (onShowNotification) {
-        onShowNotification("Limpieza y estandarización aplicadas con éxito", "success");
+      if (isExcel && target === 'workbook') {
+        const cleanedSheets = {};
+        Object.entries(workbookSheets).forEach(([sName, sInfo]) => {
+          const cleaned = sanitizeDataset(sInfo.data, sInfo.headers, cleanOptions);
+          cleanedSheets[sName] = cleaned;
+        });
+
+        onUpdateWorkbook(cleanedSheets);
+        if (onShowNotification) {
+          onShowNotification(`Limpieza y estandarización aplicadas con éxito a las ${sheetNames.length} hojas del libro`, "success");
+        }
+      } else {
+        const cleaned = sanitizeDataset(data, headers, cleanOptions);
+        onUpdateData(cleaned);
+        if (onShowNotification) {
+          onShowNotification("Limpieza y estandarización aplicadas con éxito a la hoja actual", "success");
+        }
       }
+      setShowApplyConfirm(false);
     } catch (e) {
       console.error("Error applying cleaning settings:", e);
       if (onShowNotification) {
@@ -472,6 +581,44 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               Escanea tu archivo para detectar anomalías, registros duplicados e inconsistencias críticas en formatos de fechas y horas antes de continuar.
             </p>
           </div>
+          {isExcel && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              gap: '12px', 
+              margin: '12px 0 6px', 
+              padding: '16px 20px', 
+              border: '1px solid var(--border-color)', 
+              borderRadius: 'var(--radius-lg)', 
+              backgroundColor: 'var(--bg-surface-subtle)',
+              alignItems: 'flex-start',
+              textAlign: 'left'
+            }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Opción de Diagnóstico (Libro de Excel)</span>
+              <div style={{ display: 'flex', gap: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  <input 
+                    type="radio" 
+                    name="scanTarget" 
+                    checked={scanTarget === 'sheet'} 
+                    onChange={() => setScanTarget('sheet')} 
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--brand-primary)' }}
+                  />
+                  <span>Solo hoja actual (<strong>{currentSheet}</strong>)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  <input 
+                    type="radio" 
+                    name="scanTarget" 
+                    checked={scanTarget === 'workbook'} 
+                    onChange={() => setScanTarget('workbook')} 
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--brand-primary)' }}
+                  />
+                  <span>Todo el libro (<strong>{sheetNames.length} hojas</strong>)</span>
+                </label>
+              </div>
+            </div>
+          )}
           <button 
             className="btn-primary" 
             onClick={handleStartScan}
@@ -543,44 +690,44 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
                         {/* Duplicates Found */}
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px', backgroundColor: 'var(--bg-surface-subtle)' }}>
                           <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Registros Duplicados</span>
-                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (anomaliesStats?.duplicateCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
-                            {anomaliesStats?.duplicateCount || 0}
+                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (displayStats?.duplicateCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
+                            {displayStats?.duplicateCount || 0}
                           </div>
                           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {(anomaliesStats?.duplicateCount || 0) > 0 ? 'Registros redundantes que inflan métricas.' : 'No se detectaron redundancias.'}
+                            {(displayStats?.duplicateCount || 0) > 0 ? 'Registros redundantes que inflan métricas.' : 'No se detectaron redundancias.'}
                           </p>
                         </div>
 
                         {/* Missing Cells */}
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px', backgroundColor: 'var(--bg-surface-subtle)' }}>
                           <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Valores Vacíos / Nulos</span>
-                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (anomaliesStats?.missingCount || 0) > 0 ? 'var(--status-critical)' : 'var(--text-primary)' }}>
-                            {anomaliesStats?.missingCount || 0}
+                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (displayStats?.missingCount || 0) > 0 ? 'var(--status-critical)' : 'var(--text-primary)' }}>
+                            {displayStats?.missingCount || 0}
                           </div>
                           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {(anomaliesStats?.missingCount || 0) > 0 ? 'Celdas vacías detectadas en tu dataset.' : 'Dataset completamente lleno.'}
+                            {(displayStats?.missingCount || 0) > 0 ? 'Celdas vacías detectadas.' : 'Dataset completamente lleno.'}
                           </p>
                         </div>
 
                         {/* Date Inconsistencies */}
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px', backgroundColor: 'var(--bg-surface-subtle)' }}>
                           <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Inconsistencia de Fechas</span>
-                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (anomaliesStats?.inconsistentDatesCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
-                            {anomaliesStats?.inconsistentDatesCount || 0}
+                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (displayStats?.inconsistentDatesCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
+                            {displayStats?.inconsistentDatesCount || 0}
                           </div>
                           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {(anomaliesStats?.inconsistentDatesCount || 0) > 0 ? 'Columnas con formatos de fecha mezclados.' : 'Formatos de fecha estables.'}
+                            {(displayStats?.inconsistentDatesCount || 0) > 0 ? 'Columnas con formatos de fecha mezclados.' : 'Formatos de fecha estables.'}
                           </p>
                         </div>
 
                         {/* Time Inconsistencies */}
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px', backgroundColor: 'var(--bg-surface-subtle)' }}>
                           <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>Inconsistencia de Horas</span>
-                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (anomaliesStats?.inconsistentTimesCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
-                            {anomaliesStats?.inconsistentTimesCount || 0}
+                          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px', color: (displayStats?.inconsistentTimesCount || 0) > 0 ? 'var(--status-pending)' : 'var(--text-primary)' }}>
+                            {displayStats?.inconsistentTimesCount || 0}
                           </div>
                           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {(anomaliesStats?.inconsistentTimesCount || 0) > 0 ? 'Columnas con horas en formatos regionales o mixtos.' : 'Formatos de hora estables.'}
+                            {(displayStats?.inconsistentTimesCount || 0) > 0 ? 'Columnas con horas en formatos regionales o mixtos.' : 'Formatos de hora estables.'}
                           </p>
                         </div>
                       </div>
@@ -609,6 +756,41 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
                 </div>
               )}
 
+            </div>
+          </div>
+        )}
+        {showApplyConfirm && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '480px', width: '100%', padding: '24px' }}>
+              <div className="modal-header" style={{ paddingBottom: '16px', borderBottom: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Aplicar cambios al libro de Excel</h3>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                  ¿Deseas aplicar estos ajustes de limpieza a todas las hojas del libro o solo a la hoja actual?
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={() => handleApplyClean('sheet')}
+                    style={{ padding: '12px', justifyContent: 'flex-start', fontSize: '13.5px', width: '100%' }}
+                  >
+                    <span>Solo a la hoja actual (<strong>{currentSheet}</strong>)</span>
+                  </button>
+                  <button 
+                    className="btn-primary" 
+                    onClick={() => handleApplyClean('workbook')}
+                    style={{ padding: '12px', justifyContent: 'flex-start', fontSize: '13.5px', width: '100%' }}
+                  >
+                    <span>A todo el libro (<strong>{sheetNames.length} hojas</strong>)</span>
+                  </button>
+                </div>
+              </div>
+              <div className="modal-footer" style={{ marginTop: '20px', paddingTop: '12px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="btn-secondary" onClick={() => setShowApplyConfirm(false)} style={{ padding: '8px 16px' }}>
+                  <span>Cancelar</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -920,7 +1102,13 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         {/* Botón Aplicar Ajustes (en la izquierda como se solicitó) */}
         <button 
           className="btn-primary btn-apply-clean-settings" 
-          onClick={handleApplyClean}
+          onClick={() => {
+            if (isExcel) {
+              setShowApplyConfirm(true);
+            } else {
+              handleApplyClean('sheet');
+            }
+          }}
           style={{ 
             width: '100%', 
             padding: '12px 20px', 
@@ -957,7 +1145,39 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           </p>
         </div>
 
-        <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', minHeight: '380px' }}>
+        {isExcel && (
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            padding: '8px 12px', 
+            backgroundColor: 'var(--bg-surface-subtle)', 
+            borderRadius: 'var(--radius-md)', 
+            border: '1px solid var(--border-color)',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hojas del Libro:</span>
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {sheetNames.map(sheet => (
+                <button
+                  key={sheet}
+                  type="button"
+                  onClick={() => onSwitchSheet(sheet)}
+                  className={`sheet-tab-btn ${currentSheet === sheet ? 'active' : ''}`}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    height: '26px'
+                  }}
+                >
+                  {sheet}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ overflowX: 'auto', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', minHeight: '380px', maxHeight: '460px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--bg-surface-subtle)', borderBottom: '1px solid var(--border-color)' }}>
@@ -1105,7 +1325,7 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           <div
             className="export-card"
             style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
-            onClick={() => exportToExcel(data, headers, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.xlsx` : 'dataset.xlsx')}
+            onClick={() => exportToExcel(data, headers, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.xlsx` : 'dataset.xlsx', isExcel ? workbookSheets : null)}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <FileSpreadsheet size={20} color="#107c41" />

@@ -43,6 +43,7 @@ export default function App() {
   const [excelFile, setExcelFile] = useState(null);
   const [sheetNames, setSheetNames] = useState([]);
   const [currentSheet, setCurrentSheet] = useState('');
+  const [workbookSheets, setWorkbookSheets] = useState({});
 
   // Custom lightweight notification capsule states & handlers
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success', isExiting: false });
@@ -83,11 +84,27 @@ export default function App() {
           setExcelFile(fileOrContent);
           setSheetNames(sheets);
           setCurrentSheet(sheets[0]);
+
+          // Cargar todas las hojas inicialmente
+          const tempSheets = {};
+          for (const s of sheets) {
+            const parsedSheet = await parseFileOrContent(fileOrContent, fileOrContent.name, '', 'utf-8', s);
+            tempSheets[s] = {
+              headers: parsedSheet.headers,
+              data: parsedSheet.normalizedData,
+              columnTypes: parsedSheet.columnTypes,
+              metrics: parsedSheet.metrics
+            };
+          }
+          setWorkbookSheets(tempSheets);
         } else if (!sheetName) {
           setExcelFile(null);
           setSheetNames([]);
           setCurrentSheet('');
+          setWorkbookSheets({});
         }
+      } else {
+        setWorkbookSheets({});
       }
 
       setActiveTab('table');
@@ -99,11 +116,19 @@ export default function App() {
   const handleSwitchSheet = async (sheetName) => {
     if (!excelFile) return;
     try {
-      const parsed = await parseFileOrContent(excelFile, excelFile.name, '', 'utf-8', sheetName);
-      setHeaders(parsed.headers);
-      setData(parsed.normalizedData);
-      setColumnTypes(parsed.columnTypes);
-      setMetrics(parsed.metrics);
+      const sheetInfo = workbookSheets[sheetName];
+      if (sheetInfo) {
+        setHeaders(sheetInfo.headers);
+        setData(sheetInfo.data);
+        setColumnTypes(sheetInfo.columnTypes);
+        setMetrics(sheetInfo.metrics);
+      } else {
+        const parsed = await parseFileOrContent(excelFile, excelFile.name, '', 'utf-8', sheetName);
+        setHeaders(parsed.headers);
+        setData(parsed.normalizedData);
+        setColumnTypes(parsed.columnTypes);
+        setMetrics(parsed.metrics);
+      }
       setCurrentSheet(sheetName);
       
       // Limpiar comparaciones secundarias al cambiar de hoja para evitar confusión
@@ -147,6 +172,18 @@ export default function App() {
     // Update metrics
     const updatedMetrics = calculateDatasetMetrics(reNormalized, headers);
     setMetrics(updatedMetrics);
+
+    if (excelFile && currentSheet) {
+      setWorkbookSheets(prev => ({
+        ...prev,
+        [currentSheet]: {
+          ...prev[currentSheet],
+          data: reNormalized,
+          columnTypes: updatedTypes,
+          metrics: updatedMetrics
+        }
+      }));
+    }
   };
 
   const handleRenameColumn = (oldName, newName) => {
@@ -167,11 +204,23 @@ export default function App() {
     setData(updatedData);
 
     // Update columnTypes key
+    let updatedTypes = { ...columnTypes };
     if (columnTypes[oldName]) {
-      const updatedTypes = { ...columnTypes };
       updatedTypes[cleanNewName] = updatedTypes[oldName];
       delete updatedTypes[oldName];
       setColumnTypes(updatedTypes);
+    }
+
+    if (excelFile && currentSheet) {
+      setWorkbookSheets(prev => ({
+        ...prev,
+        [currentSheet]: {
+          ...prev[currentSheet],
+          headers: updatedHeaders,
+          data: updatedData,
+          columnTypes: updatedTypes
+        }
+      }));
     }
   };
 
@@ -184,6 +233,35 @@ export default function App() {
     }
     const updatedMetrics = calculateDatasetMetrics(newData, activeHeaders);
     setMetrics(updatedMetrics);
+
+    if (excelFile && currentSheet) {
+      setWorkbookSheets(prev => ({
+        ...prev,
+        [currentSheet]: {
+          ...prev[currentSheet],
+          headers: activeHeaders,
+          data: newData,
+          metrics: updatedMetrics
+        }
+      }));
+    }
+  };
+
+  const handleUpdateWorkbook = (cleanedSheetsData) => {
+    const newWorkbookSheets = { ...workbookSheets };
+    Object.entries(cleanedSheetsData).forEach(([sName, cleanedData]) => {
+      if (newWorkbookSheets[sName]) {
+        newWorkbookSheets[sName].data = cleanedData;
+        newWorkbookSheets[sName].metrics = calculateDatasetMetrics(cleanedData, newWorkbookSheets[sName].headers);
+      }
+    });
+    setWorkbookSheets(newWorkbookSheets);
+
+    // Actualizar estados locales de la hoja activa
+    if (newWorkbookSheets[currentSheet]) {
+      setData(newWorkbookSheets[currentSheet].data);
+      setMetrics(newWorkbookSheets[currentSheet].metrics);
+    }
   };
 
   // Add new record
@@ -282,9 +360,6 @@ export default function App() {
             {activeTab === 'export' && (
               <div className="table-panel" style={{ padding: '24px 8px', background: 'transparent', border: 'none', boxShadow: 'none' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', paddingLeft: '8px' }}>Centro de Limpieza & Sanitización</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px', paddingLeft: '8px' }}>
-                  Limpia, sanitiza y exporta tus conjuntos de datos en formato CSV o JSON.
-                </p>
                 <OperationsPanel
                   data={data}
                   headers={headers}
@@ -295,6 +370,12 @@ export default function App() {
                   onShowNotification={showNotification}
                   isAnalyzed={isAnalyzed}
                   setIsAnalyzed={setIsAnalyzed}
+                  excelFile={excelFile}
+                  sheetNames={sheetNames}
+                  currentSheet={currentSheet}
+                  workbookSheets={workbookSheets}
+                  onUpdateWorkbook={handleUpdateWorkbook}
+                  onSwitchSheet={handleSwitchSheet}
                 />
               </div>
             )}
