@@ -46,10 +46,10 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
         <div style={{ textAlign: 'center', marginBottom: '64px' }}>
           <Logo size={110} style={{ marginBottom: '20px' }} />
           <h1 style={{ fontSize: '48px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1, color: 'var(--text-primary)', marginBottom: '14px' }}>
-            Data Forge
+            FjordGrid
           </h1>
           <p style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-secondary)', maxWidth: '640px', margin: '0 auto', lineHeight: 1.3 }}>
-            Donde la evidencia se forja dato a dato.
+            Donde la claridad de tus datos fluye.
           </p>
         </div>
 
