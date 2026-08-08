@@ -1,7 +1,8 @@
 import React from 'react';
-import logoSvg from '../data forge.svg';
+import { Sun, Moon } from 'lucide-react';
+import Logo from './Logo';
 
-export default function Header({ activeTab, setActiveTab }) {
+export default function Header({ activeTab, setActiveTab, theme, toggleTheme }) {
   const navItems = [
     { id: 'editor', label: 'Carga' },
     { id: 'table', label: 'Tabla' },
@@ -13,7 +14,7 @@ export default function Header({ activeTab, setActiveTab }) {
       <div className="header-content">
         {/* Brand Logo */}
         <div className="brand-logo" onClick={() => setActiveTab('table')}>
-          <img src={logoSvg} alt="Data Forge Logo" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
+          <Logo size={38} />
           <span>Data Forge</span>
         </div>
 
@@ -32,6 +33,16 @@ export default function Header({ activeTab, setActiveTab }) {
             );
           })}
         </nav>
+
+        {/* Theme Toggle Button */}
+        <button 
+          onClick={toggleTheme} 
+          className="btn-icon" 
+          style={{ position: 'absolute', right: '32px' }}
+          title={theme === 'light' ? 'Activar modo oscuro' : 'Activar modo claro'}
+        >
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
       </div>
     </header>
   );

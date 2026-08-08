@@ -9,6 +9,21 @@ import AddRecordModal from './components/AddRecordModal';
 import { parseFileOrContent, calculateDatasetMetrics, normalizeDataset, getWorkbookSheetNames } from './utils/csvEngine';
 
 export default function App() {
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved) return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
   const [activeTab, setActiveTab] = useState('upload'); // 'upload', 'analysis', 'table', 'visuals', 'editor', 'export'
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState([]);
@@ -200,10 +215,17 @@ export default function App() {
         activeTab={currentNavTab}
         setActiveTab={handleHeaderNav}
         onOpenUploadModal={() => setActiveTab('upload')}
+        theme={theme}
+        toggleTheme={toggleTheme}
       />
 
-      {/* Main Workspace */}
-      <main className="main-workspace" style={{ padding: activeTab === 'upload' || data.length === 0 ? 0 : '28px 24px 60px' }}>
+      <main className="main-workspace" style={{ 
+        padding: activeTab === 'upload' || data.length === 0 
+          ? 0 
+          : (activeTab === 'export' && isAnalyzed ? '28px 64px 60px' : '28px 24px 60px'),
+        maxWidth: activeTab === 'export' && isAnalyzed ? '95%' : '90%',
+        width: '100%'
+      }}>
         {/* Landing Upload Screen (When no data or upload tab selected) */}
         {(activeTab === 'upload' || data.length === 0) ? (
           <LandingUploadScreen
@@ -258,9 +280,9 @@ export default function App() {
 
 
             {activeTab === 'export' && (
-              <div className="table-panel" style={{ padding: '32px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>Centro de Limpieza & Sanitización</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px' }}>
+              <div className="table-panel" style={{ padding: '24px 8px', background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', paddingLeft: '8px' }}>Centro de Limpieza & Sanitización</h2>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px', paddingLeft: '8px' }}>
                   Limpia, sanitiza y exporta tus conjuntos de datos en formato CSV o JSON.
                 </p>
                 <OperationsPanel

@@ -8,11 +8,15 @@ import {
   Download, 
   ChevronDown, 
   ChevronUp, 
+  ChevronLeft,
+  ChevronRight,
   Clock, 
   AlertCircle,
   Play,
   Search,
-  FileText
+  FileText,
+  X,
+  HelpCircle
 } from 'lucide-react';
 import { 
   sanitizeDataset, 
@@ -22,10 +26,22 @@ import {
   exportToSQL,
   exportToMarkdown,
   detectDateFormatsForColumn, 
-  detectTimeFormatsForColumn 
+  detectTimeFormatsForColumn,
+  isDatasetEnglishPredominant,
+  standardizeDateValue,
+  standardizeTimeValue
 } from '../utils/dataSanitizer';
+import { driver } from 'driver.js';
+import 'driver.js/dist/driver.css';
 
 export default function OperationsPanel({ data, headers, onUpdateData, fileName, columnTypes = {}, onShowNotification, isAnalyzed, setIsAnalyzed }) {
+  // Local duplicate state to guarantee instant UI rendering transitions
+  const [localIsAnalyzed, setLocalIsAnalyzed] = useState(isAnalyzed);
+
+  useEffect(() => {
+    setLocalIsAnalyzed(isAnalyzed);
+  }, [isAnalyzed]);
+
   // Analyze Flow States
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
@@ -47,11 +63,170 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
   const [columnTimeFormats, setColumnTimeFormats] = useState({});
   const [textCaseOption, setTextCaseOption] = useState('title'); // 'title', 'upper', 'lower'
 
+  // Pagination and change comparison logic
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  const isEnglish = useMemo(() => {
+    return isDatasetEnglishPredominant(data, headers);
+  }, [data, headers]);
+
+  const rowsComparison = useMemo(() => {
+    if (!data || !Array.isArray(data) || !headers || !Array.isArray(headers)) return [];
+    
+    const seen = new Set();
+    const finalNullFillValue = nullFillValue === 'custom' ? customNullValue : nullFillValue;
+    
+    return data.map((row) => {
+      const fingerprint = headers.map(col => String(row[col] ?? '')).join('|||');
+      const isDuplicate = seen.has(fingerprint);
+      seen.add(fingerprint);
+      
+      const isDeleted = isDuplicate && removeDuplicates;
+      
+      const cellChanges = {};
+      headers.forEach(col => {
+        let val = row[col];
+        
+        // 1. Trim whitespace
+        if (typeof val === 'string' && trimWhitespace) {
+          val = val.trim().replace(/\s+/g, ' ');
+        }
+        
+        // 2. Text case
+        if (typeof val === 'string' && isTextCaseOpen && textCaseOption !== 'none') {
+          if (textCaseOption === 'upper') val = val.toUpperCase();
+          else if (textCaseOption === 'lower') val = val.toLowerCase();
+          else if (textCaseOption === 'title') {
+            val = val.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.substring(1)).join(' ');
+          }
+        }
+        
+        // 3. Impute nulls
+        if (val === null || val === undefined || String(val).trim() === '') {
+          if (isNullsOpen) {
+            val = finalNullFillValue;
+          }
+        }
+        
+        // 4. Date standardize
+        if (isDatesOpen && columnDateFormats[col] && headers.includes(col)) {
+          val = standardizeDateValue(val, columnDateFormats[col], isEnglish);
+        }
+        
+        // 5. Time standardize
+        if (isTimesOpen && columnTimeFormats[col] && headers.includes(col)) {
+          val = standardizeTimeValue(val, columnTimeFormats[col]);
+        }
+        
+        cellChanges[col] = {
+          original: row[col],
+          preview: val,
+          changed: row[col] !== val
+        };
+      });
+      
+      return {
+        rowId: row._id,
+        isDeleted,
+        isDuplicate,
+        cellChanges
+      };
+    });
+  }, [
+    data,
+    headers,
+    removeDuplicates,
+    trimWhitespace,
+    isNullsOpen,
+    nullFillValue,
+    customNullValue,
+    isDatesOpen,
+    columnDateFormats,
+    isTimesOpen,
+    columnTimeFormats,
+    isTextCaseOpen,
+    textCaseOption,
+    isEnglish
+  ]);
+
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return rowsComparison.slice(start, start + rowsPerPage);
+  }, [rowsComparison, currentPage, rowsPerPage]);
+
+  // Reset page to 1 when options change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rowsComparison]);
+
   // Reset analysis session local states if file changes
   useEffect(() => {
     setShowSummary(false);
     setIsScanning(false);
   }, [fileName]);
+
+  const handleStartCleanTour = () => {
+    const driverObj = driver({
+      showProgress: true,
+      popoverClass: 'driverjs-theme',
+      nextBtnText: 'Siguiente',
+      prevBtnText: 'Anterior',
+      doneBtnText: 'Finalizar',
+      steps: [
+        { 
+          element: '.cleaning-config-panel', 
+          popover: { 
+            title: 'Ajustes de Sanitización', 
+            description: 'Este es tu centro de configuración. Aquí parametrizarás todas las reglas automáticas de depuración y limpieza para tu conjunto de datos.' 
+          } 
+        },
+        { 
+          element: '.cleaning-config-panel div:nth-of-type(2)', 
+          popover: { 
+            title: '1. Imputación de Nulos y Vacíos', 
+            description: 'Activa las casillas para eliminar automáticamente registros duplicados idénticos en todas sus celdas, y recortar espacios en blanco innecesarios o dobles espacios internos.' 
+          } 
+        },
+        { 
+          element: '.cleaning-config-panel div:nth-of-type(3)', 
+          popover: { 
+            title: '2. Estandarización de Fechas y Horas', 
+            description: 'Despliega esta sección para definir cómo rellenar las celdas vacías. Puedes elegir valores predefinidos como "nulo", "N/A" o ingresar un término personalizado.' 
+          } 
+        },
+        { 
+          element: '.cleaning-config-panel div:nth-of-type(5)', 
+          popover: { 
+            title: '3. Incoherencias en Palabras', 
+            description: 'Despliega esta opción para estandarizar la escritura de campos de texto. Puedes convertirlos de golpe a tipo Título (Juan Pérez), MAYÚSCULAS o minúsculas.' 
+          } 
+        },
+        { 
+          element: '.btn-apply-clean-settings', 
+          popover: { 
+            title: '4. Aplicar y Guardar Ajustes', 
+            description: 'Una vez configuradas tus reglas, haz clic en "Aplicar Ajustes" para consolidar los cambios en el dataset y actualizar el archivo principal de forma definitiva.' 
+          } 
+        },
+        { 
+          element: '.preview-changes-panel', 
+          popover: { 
+            title: '5. Vista Previa de Cambios', 
+            description: 'Muestra el impacto exacto en tiempo real: celdas modificadas se iluminan mostrando el valor anterior tachado y el nuevo, y las filas duplicadas se colorean en rojo para borrado.' 
+          } 
+        },
+        { 
+          element: '.download-files-panel', 
+          popover: { 
+            title: '6. Descargar y Exportar', 
+            description: 'Una vez limpio, exporta tu trabajo finalizado descargando el archivo en el formato que requieras: CSV, Excel (.xlsx), JSON, SQL INSERTs o tablas Markdown.' 
+          } 
+        }
+      ]
+    });
+    driverObj.drive();
+  };
 
   // Detect Date Columns
   const dateColumns = useMemo(() => {
@@ -232,7 +407,10 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
 
   const handleConfirmSummary = () => {
     setIsScanning(false);
-    setIsAnalyzed(true);
+    setLocalIsAnalyzed(true);
+    if (setIsAnalyzed) {
+      setIsAnalyzed(true);
+    }
   };
 
   const handleApplyClean = () => {
@@ -265,7 +443,7 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
   };
 
   // 1. Initial State: Analyze Hero Screen & Scanning Modal overlay
-  if (!isAnalyzed) {
+  if (!localIsAnalyzed) {
     return (
       <div style={{ position: 'relative', width: '100%' }}>
         <div 
@@ -280,14 +458,16 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
             padding: '48px 24px',
             textAlign: 'center',
             gap: '20px',
-            boxShadow: 'var(--shadow-sm)'
+            boxShadow: 'var(--shadow-sm)',
+            maxWidth: '100%',
+            margin: '0 auto'
           }}
         >
-          <div style={{ width: '64px', height: '64px', backgroundColor: 'rgba(250, 74, 20, 0.1)', color: '#fa4a14', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '64px', height: '64px', backgroundColor: 'var(--bg-surface-elevated)', color: 'var(--brand-primary)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Search size={30} />
           </div>
           <div>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>Diagnóstico & Calidad del Dataset</h3>
+            <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>Diagnóstico & Calidad del Archivo</h3>
             <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '6px', maxWidth: '520px', margin: '6px auto 0' }}>
               Escanea tu archivo para detectar anomalías, registros duplicados e inconsistencias críticas en formatos de fechas y horas antes de continuar.
             </p>
@@ -296,8 +476,6 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
             className="btn-primary" 
             onClick={handleStartScan}
             style={{ 
-              backgroundColor: '#fa4a14', 
-              borderColor: '#fa4a14', 
               padding: '12px 32px', 
               fontSize: '14.5px', 
               fontWeight: 700, 
@@ -318,11 +496,21 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               {/* Modal Header */}
               <div className="modal-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Search size={18} className="scanning-icon" style={{ color: '#fa4a14' }} />
+                  <Search size={18} className="scanning-icon" style={{ color: 'var(--brand-primary)' }} />
                   <h3 style={{ fontSize: '16px', fontWeight: 700 }}>
                     {!showSummary ? 'Escaneando archivo...' : 'Diagnóstico del Dataset Finalizado'}
                   </h3>
                 </div>
+                {showSummary && (
+                  <button 
+                    className="btn-icon" 
+                    onClick={handleConfirmSummary} 
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}
+                    title="Cerrar y continuar a limpieza"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
               </div>
 
               {/* Modal Body */}
@@ -427,34 +615,47 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
       </div>
     );
   }
+  const totalPages = Math.ceil(rowsComparison.length / rowsPerPage) || 1;
 
-  // 2. Main Cleaning Interface (Visible only after analysis is confirmed)
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 7fr) minmax(0, 3fr)', gap: '24px', width: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 7fr) minmax(0, 3fr)', gap: '20px', width: '100%' }}>
       {/* Columna 1: Panel de Configuración de Limpieza */}
       <div 
+        className="cleaning-config-panel"
         style={{ 
           backgroundColor: 'var(--bg-surface)', 
           border: '1px solid var(--border-color)', 
           borderRadius: 'var(--radius-lg)', 
-          padding: '28px',
+          padding: '24px',
           display: 'flex', 
           flexDirection: 'column', 
-          gap: '28px' 
+          gap: '24px',
+          height: '100%'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-          <Sliders size={20} color="#000000" />
-          <h3 style={{ fontSize: '18px', fontWeight: 700 }}>Ajustes de Sanitización</h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Sliders size={20} color="var(--text-primary)" />
+            <h3 style={{ fontSize: '17px', fontWeight: 700 }}>Ajustes de Sanitización</h3>
+          </div>
+          <button
+            className="btn-guide-trigger"
+            onClick={handleStartCleanTour}
+            style={{ padding: '6px 12px', fontSize: '12px', height: '32px', borderRadius: 'var(--radius-md)' }}
+            title="Iniciar guía de limpieza"
+          >
+            <HelpCircle size={13} />
+            <span>Guía</span>
+          </button>
         </div>
 
         {/* Duplicados y Limpieza Básica */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '24px' }}>
-          <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
+          <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
             Duplicados & Limpieza Básica
           </h4>
           
-          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '13.5px', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={removeDuplicates}
@@ -462,14 +663,14 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
             />
             <div>
-              <strong style={{ fontSize: '14.5px' }}>Eliminar registros duplicados</strong>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              <strong style={{ fontSize: '14px' }}>Eliminar registros duplicados</strong>
+              <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
                 Elimina filas idénticas evaluando todos los campos del registro.
               </div>
             </div>
           </label>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '13.5px', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={trimWhitespace}
@@ -477,8 +678,8 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
             />
             <div>
-              <strong style={{ fontSize: '14.5px' }}>Recortar espacios en blanco y textos</strong>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              <strong style={{ fontSize: '14px' }}>Recortar espacios en blanco y textos</strong>
+              <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
                 Limpia espacios al inicio/final y reduce espacios dobles internos.
               </div>
             </div>
@@ -486,13 +687,13 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         </div>
 
         {/* Imputación de Nulos */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
             <div 
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
               onClick={() => setIsNullsOpen(!isNullsOpen)}
             >
-              <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+              <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
                 Imputación de Nulos / Vacíos
               </h4>
               {isNullsOpen ? <ChevronUp size={16} color="var(--text-secondary)" /> : <ChevronDown size={16} color="var(--text-secondary)" />}
@@ -500,12 +701,12 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           </div>
 
           {isNullsOpen && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', backgroundColor: 'var(--bg-surface-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: 'var(--bg-surface-subtle)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px' }}>
               <div className="form-group-sm">
-                <label style={{ fontSize: '12px', fontWeight: 700 }}>Relleno Predefinido</label>
+                <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Relleno Predefinido</label>
                 <select
                   className="form-select-sm"
-                  style={{ padding: '8px 12px', fontSize: '13.5px', marginTop: '6px', height: '38px' }}
+                  style={{ padding: '6px 10px', fontSize: '13px', marginTop: '6px', height: '34px', width: '100%' }}
                   value={nullFillValue}
                   onChange={e => setNullFillValue(e.target.value)}
                 >
@@ -520,12 +721,12 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
 
               {nullFillValue === 'custom' && (
                 <div className="form-group-sm">
-                  <label style={{ fontSize: '12px', fontWeight: 700 }}>Valor Personalizado</label>
+                  <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Valor Personalizado</label>
                   <input
                     type="text"
                     className="form-select-sm"
                     placeholder="Ej: Desconocido"
-                    style={{ padding: '8px 12px', fontSize: '13.5px', marginTop: '6px', border: '1px solid var(--border-color)', height: '38px' }}
+                    style={{ padding: '6px 10px', fontSize: '13px', marginTop: '6px', border: '1px solid var(--border-color)', height: '34px', width: '100%' }}
                     value={customNullValue}
                     onChange={e => setCustomNullValue(e.target.value)}
                   />
@@ -536,13 +737,13 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         </div>
 
         {/* Estandarización de Fechas */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
             <div 
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
               onClick={() => setDatesOpen(!isDatesOpen)}
             >
-              <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+              <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
                 Estandarización de Fechas
               </h4>
               {isDatesOpen ? <ChevronUp size={16} color="var(--text-secondary)" /> : <ChevronDown size={16} color="var(--text-secondary)" />}
@@ -550,49 +751,49 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           </div>
 
           {isDatesOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '4px' }}>
               {dateColumnDetails.length === 0 ? (
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No se detectaron columnas de fecha en este dataset.</span>
+                <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>No se detectaron columnas de fecha.</span>
               ) : (
                 dateColumnDetails.map(({ col, formats, isMixed }) => (
-                  <div key={col} style={{ backgroundColor: 'var(--bg-surface-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Columna: {col}</span>
-                      {isMixed && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-pending)', fontSize: '11px', fontWeight: 600 }}>
-                          <AlertCircle size={14} />
-                          <span>Formatos mezclados / incorrectos</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                      <strong>Formatos actuales detectados:</strong>{' '}
-                      {formats.length > 0 ? (
-                        <code style={{ fontSize: '11.5px', backgroundColor: '#e5e7eb', padding: '2px 6px', borderRadius: '4px', color: '#1f2937' }}>
-                          {formats.join(', ')}
-                        </code>
-                      ) : (
-                        'Ningún formato conocido o columna vacía'
-                      )}
-                    </div>
+                  <div key={col} style={{ backgroundColor: 'var(--bg-surface-subtle)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                       <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Columna: {col}</span>
+                       {isMixed && (
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-pending)', fontSize: '10.5px', fontWeight: 600 }}>
+                           <AlertCircle size={13} />
+                           <span>Formatos mezclados</span>
+                         </div>
+                       )}
+                     </div>
+                     
+                     <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.3 }}>
+                       <strong>Formatos actuales:</strong>{' '}
+                       {formats.length > 0 ? (
+                         <code style={{ fontSize: '11px', backgroundColor: '#e5e7eb', padding: '1px 5px', borderRadius: '4px', color: '#1f2937' }}>
+                           {formats.join(', ')}
+                         </code>
+                       ) : (
+                         'Ningún formato conocido'
+                       )}
+                     </div>
 
-                    <div className="form-group-sm">
-                      <label style={{ fontSize: '11px', fontWeight: 700 }}>Convertir esta columna al formato:</label>
-                      <select
-                        className="form-select-sm"
-                        style={{ padding: '8px 12px', fontSize: '13px', marginTop: '4px', width: '100%', height: '36px' }}
-                        value={columnDateFormats[col] || ''}
-                        onChange={e => handleDateChange(col, e.target.value)}
-                      >
-                        <option value="">No estandarizar esta columna</option>
-                        <option value="YYYY-MM-DD">YYYY-MM-DD (ISO - Ej: 2026-08-03)</option>
-                        <option value="DD/MM/YYYY">DD/MM/YYYY (Ej: 03/08/2026)</option>
-                        <option value="MM/DD/YYYY">MM/DD/YYYY (Ej: 08/03/2026)</option>
-                        <option value="YYYY/MM/DD">YYYY/MM/DD (Ej: 2026/08/03)</option>
-                        <option value="DD-MM-YYYY">DD-MM-YYYY (Ej: 03-08-2026)</option>
-                      </select>
-                    </div>
+                     <div className="form-group-sm">
+                       <label style={{ fontSize: '10.5px', fontWeight: 700 }}>Convertir al formato:</label>
+                       <select
+                         className="form-select-sm"
+                         style={{ padding: '6px 10px', fontSize: '12.5px', marginTop: '4px', width: '100%', height: '32px' }}
+                         value={columnDateFormats[col] || ''}
+                         onChange={e => handleDateChange(col, e.target.value)}
+                       >
+                         <option value="">No estandarizar</option>
+                         <option value="YYYY-MM-DD">YYYY-MM-DD (ISO - Ej: 2026-08-03)</option>
+                         <option value="DD/MM/YYYY">DD/MM/YYYY (Ej: 03/08/2026)</option>
+                         <option value="MM/DD/YYYY">MM/DD/YYYY (Ej: 08/03/2026)</option>
+                         <option value="YYYY/MM/DD">YYYY/MM/DD (Ej: 2026/08/03)</option>
+                         <option value="DD-MM-YYYY">DD-MM-YYYY (Ej: 03-08-2026)</option>
+                       </select>
+                     </div>
                   </div>
                 ))
               )}
@@ -601,13 +802,13 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         </div>
 
         {/* Estandarización de Horas */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
             <div 
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
               onClick={() => setTimesOpen(!isTimesOpen)}
             >
-              <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+              <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
                 Estandarización de Horas
               </h4>
               {isTimesOpen ? <ChevronUp size={16} color="var(--text-secondary)" /> : <ChevronDown size={16} color="var(--text-secondary)" />}
@@ -615,48 +816,48 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           </div>
 
           {isTimesOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '4px' }}>
               {timeColumnDetails.length === 0 ? (
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No se detectaron columnas de hora en este dataset.</span>
+                <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>No se detectaron columnas de hora.</span>
               ) : (
                 timeColumnDetails.map(({ col, formats, isMixed }) => (
-                  <div key={col} style={{ backgroundColor: 'var(--bg-surface-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Columna: {col}</span>
-                      {isMixed && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-pending)', fontSize: '11px', fontWeight: 600 }}>
-                          <AlertCircle size={14} />
-                          <span>Formatos mezclados / incorrectos</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                      <strong>Formatos actuales detectados:</strong>{' '}
-                      {formats.length > 0 ? (
-                        <code style={{ fontSize: '11.5px', backgroundColor: '#e5e7eb', padding: '2px 6px', borderRadius: '4px', color: '#1f2937' }}>
-                          {formats.join(', ')}
-                        </code>
-                      ) : (
-                        'Ningún formato conocido o columna vacía'
-                      )}
-                    </div>
+                  <div key={col} style={{ backgroundColor: 'var(--bg-surface-subtle)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                       <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Columna: {col}</span>
+                       {isMixed && (
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-pending)', fontSize: '10.5px', fontWeight: 600 }}>
+                           <AlertCircle size={13} />
+                           <span>Formatos mezclados</span>
+                         </div>
+                       )}
+                     </div>
+                     
+                     <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.3 }}>
+                       <strong>Formatos actuales:</strong>{' '}
+                       {formats.length > 0 ? (
+                         <code style={{ fontSize: '11px', backgroundColor: '#e5e7eb', padding: '1px 5px', borderRadius: '4px', color: '#1f2937' }}>
+                           {formats.join(', ')}
+                         </code>
+                       ) : (
+                         'Ningún formato conocido'
+                       )}
+                     </div>
 
-                    <div className="form-group-sm">
-                      <label style={{ fontSize: '11px', fontWeight: 700 }}>Convertir esta columna al formato:</label>
-                      <select
-                        className="form-select-sm"
-                        style={{ padding: '8px 12px', fontSize: '13px', marginTop: '4px', width: '100%', height: '36px' }}
-                        value={columnTimeFormats[col] || ''}
-                        onChange={e => handleTimeChange(col, e.target.value)}
-                      >
-                        <option value="">No estandarizar esta columna</option>
-                        <option value="HH:mm:ss">HH:mm:ss (24h - Ej: 14:30:00)</option>
-                        <option value="HH:mm">HH:mm (24h - Ej: 14:30)</option>
-                        <option value="hh:mm A">hh:mm A (12h - Ej: 02:30 PM)</option>
-                        <option value="hh:mm:ss A">hh:mm:ss A (12h - Ej: 02:30:00 PM)</option>
-                      </select>
-                    </div>
+                     <div className="form-group-sm">
+                       <label style={{ fontSize: '10.5px', fontWeight: 700 }}>Convertir al formato:</label>
+                       <select
+                         className="form-select-sm"
+                         style={{ padding: '6px 10px', fontSize: '12.5px', marginTop: '4px', width: '100%', height: '32px' }}
+                         value={columnTimeFormats[col] || ''}
+                         onChange={e => handleTimeChange(col, e.target.value)}
+                       >
+                         <option value="">No estandarizar</option>
+                         <option value="HH:mm:ss">HH:mm:ss (24h - Ej: 14:30:00)</option>
+                         <option value="HH:mm">HH:mm (24h - Ej: 14:30)</option>
+                         <option value="hh:mm A">hh:mm A (12h - Ej: 02:30 PM)</option>
+                         <option value="hh:mm:ss A">hh:mm:ss A (12h - Ej: 02:30:00 PM)</option>
+                       </select>
+                     </div>
                   </div>
                 ))
               )}
@@ -665,13 +866,13 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
         </div>
 
         {/* Normalización de Palabras */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
             <div 
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
               onClick={() => setTextCaseOpen(!isTextCaseOpen)}
             >
-              <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+              <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
                 Incoherencias en Palabras
               </h4>
               {isTextCaseOpen ? <ChevronUp size={16} color="var(--text-secondary)" /> : <ChevronDown size={16} color="var(--text-secondary)" />}
@@ -679,75 +880,216 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
           </div>
 
           {isTextCaseOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'var(--bg-surface-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px' }}>
-              <label style={{ fontSize: '12px', fontWeight: 700 }}>Estandarizar formato de escritura a:</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'var(--bg-surface-subtle)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px' }}>
+              <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Estandarizar escritura a:</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                 {[
-                  { id: 'title', label: 'Tipo Título', desc: 'Ej: Juan Pérez' },
-                  { id: 'upper', label: 'MAYÚSCULAS', desc: 'Ej: JUAN PÉREZ' },
-                  { id: 'lower', label: 'minúsculas', desc: 'Ej: juan pérez' }
+                  { id: 'title', label: 'Título', desc: 'Juan P.' },
+                  { id: 'upper', label: 'MAYÚS', desc: 'JUAN P.' },
+                  { id: 'lower', label: 'minús', desc: 'juan p.' }
                 ].map(item => (
                   <button
                     key={item.id}
                     type="button"
                     style={{
-                      padding: '10px 6px',
-                      fontSize: '12px',
+                      padding: '8px 4px',
+                      fontSize: '11.5px',
                       fontWeight: 600,
                       borderRadius: '6px',
                       cursor: 'pointer',
                       border: '1px solid var(--border-color)',
-                      backgroundColor: textCaseOption === item.id ? '#000000' : '#ffffff',
-                      color: textCaseOption === item.id ? '#ffffff' : '#4c4546',
+                      backgroundColor: textCaseOption === item.id ? 'var(--text-primary)' : 'var(--bg-surface)',
+                      color: textCaseOption === item.id ? 'var(--bg-surface)' : 'var(--text-secondary)',
                       transition: 'all 0.15s ease',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '4px'
+                      gap: '2px'
                     }}
                     onClick={() => setTextCaseOption(item.id)}
                   >
                     <span>{item.label}</span>
-                    <span style={{ fontSize: '10px', opacity: 0.8, fontWeight: 400 }}>{item.desc}</span>
+                    <span style={{ fontSize: '9px', opacity: 0.7, fontWeight: 400 }}>{item.desc}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Columna 2: Acciones & Exportación */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        {/* Botón Aplicar */}
+        {/* Botón Aplicar Ajustes (en la izquierda como se solicitó) */}
         <button 
-          className="btn-primary" 
+          className="btn-primary btn-apply-clean-settings" 
           onClick={handleApplyClean}
           style={{ 
             width: '100%', 
-            padding: '16px 24px', 
-            fontSize: '16px', 
+            padding: '12px 20px', 
+            fontSize: '14.5px', 
             justifyContent: 'center',
             borderRadius: 'var(--radius-md)',
-            fontWeight: 700
+            fontWeight: 700,
+            marginTop: '8px'
           }}
         >
           <Check size={18} />
           <span>Aplicar Ajustes</span>
         </button>
+      </div>
 
-        <div style={{ borderBottom: '1px solid var(--border-color)', margin: '10px 0' }} />
+      {/* Columna 2: Tabla de Vista Previa Central */}
+      <div 
+        className="preview-changes-panel"
+        style={{ 
+          backgroundColor: 'var(--bg-surface)', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: 'var(--radius-lg)', 
+          padding: '24px', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '16px',
+          minWidth: 0
+        }}
+      >
+        <div>
+          <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)' }}>Vista Previa de Cambios</h3>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Las celdas modificadas por las reglas activas se resaltan en amarillo mostrando <span style={{ textDecoration: 'line-through' }}>antes</span> → <strong>después</strong>. Las filas duplicadas a eliminar se sombrean en rojo.
+          </p>
+        </div>
 
-        <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
-          Descargar Archivos
-        </h4>
+        <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', minHeight: '380px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', tableLayout: 'fixed' }}>
+            <thead>
+              <tr style={{ backgroundColor: 'var(--bg-surface-subtle)', borderBottom: '1px solid var(--border-color)' }}>
+                <th style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--text-secondary)', width: '140px', minWidth: '140px' }}>Estado</th>
+                {headers.map(h => (
+                  <th key={h} style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--text-secondary)', width: '160px', minWidth: '160px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedRows.map((item) => {
+                const isDel = item.isDeleted;
+                return (
+                  <tr 
+                    key={item.rowId} 
+                    style={{ 
+                      borderBottom: '1px solid var(--border-color)',
+                      backgroundColor: isDel ? 'var(--status-critical-bg)' : undefined,
+                      transition: 'background-color 0.15s ease'
+                    }}
+                  >
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', width: '140px', minWidth: '140px' }}>
+                      {isDel ? (
+                        <span style={{ fontSize: '10px', backgroundColor: 'var(--status-critical)', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          Se eliminará (duplicado)
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Fila #{item.rowId}</span>
+                      )}
+                    </td>
+                    {headers.map(col => {
+                      const cell = item.cellChanges[col];
+                      if (isDel) {
+                        return (
+                          <td key={col} style={{ padding: '10px 12px', color: 'var(--text-muted)', textDecoration: 'line-through', opacity: 0.6, width: '160px', minWidth: '160px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {String(cell.original ?? '')}
+                          </td>
+                        );
+                      }
+                      if (cell.changed) {
+                        return (
+                          <td key={col} style={{ padding: '8px 12px', backgroundColor: 'var(--status-pending-bg)', width: '160px', minWidth: '160px', maxWidth: '220px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden' }}>
+                              <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', textDecoration: 'line-through', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {String(cell.original === null || cell.original === undefined || String(cell.original).trim() === '' ? 'vacío' : cell.original)}
+                              </span>
+                              <span style={{ fontWeight: 600, color: 'var(--brand-primary)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {String(cell.preview)}
+                              </span>
+                            </div>
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={col} style={{ padding: '10px 12px', color: 'var(--text-primary)', width: '160px', minWidth: '160px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {String(cell.preview ?? '')}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Controles de Paginación */}
+        <div className="table-footer" style={{ margin: '16px -24px -24px', borderBottomLeftRadius: 'var(--radius-lg)', borderBottomRightRadius: 'var(--radius-lg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+            <span>
+              Mostrando {Math.min((currentPage - 1) * rowsPerPage + 1, rowsComparison.length)} - {Math.min(currentPage * rowsPerPage, rowsComparison.length)} de {rowsComparison.length}
+            </span>
+            <select
+              className="pagination-select"
+              value={rowsPerPage}
+              onChange={(e) => {
+                setRowsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+
+          <div className="pagination-btns">
+            <button
+              className="pagination-btn"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span style={{ fontSize: '12px' }}>{currentPage} / {totalPages}</span>
+            <button
+              className="pagination-btn"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Columna 3: Exportación de Archivos */}
+      <div 
+        className="download-files-panel"
+        style={{ 
+          backgroundColor: 'var(--bg-surface)', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: 'var(--radius-lg)', 
+          padding: '24px',
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '20px',
+          height: '100%'
+        }}
+      >
+        <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+          <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: 0 }}>
+            Descargar Archivos
+          </h4>
+        </div>
 
         {/* Export Grid */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* Export CSV Card */}
           <div
-            className="metric-card"
-            style={{ cursor: 'pointer', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            className="export-card"
+            style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             onClick={() => exportToCSV(data, headers, fileName ? `limpio_${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.csv` : 'dataset.csv')}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -755,14 +1097,14 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               <Download size={14} color="var(--text-muted)" />
             </div>
             <div>
-              <h4 style={{ fontSize: '14.5px', fontWeight: 700 }}>Exportar CSV</h4>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 700 }}>Exportar CSV</h4>
             </div>
           </div>
 
           {/* Export Excel Card */}
           <div
-            className="metric-card"
-            style={{ cursor: 'pointer', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            className="export-card"
+            style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             onClick={() => exportToExcel(data, headers, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.xlsx` : 'dataset.xlsx')}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -770,14 +1112,14 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               <Download size={14} color="var(--text-muted)" />
             </div>
             <div>
-              <h4 style={{ fontSize: '14.5px', fontWeight: 700 }}>Exportar Excel (.xlsx)</h4>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 700 }}>Exportar Excel (.xlsx)</h4>
             </div>
           </div>
 
           {/* Export JSON Card */}
           <div
-            className="metric-card"
-            style={{ cursor: 'pointer', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            className="export-card"
+            style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             onClick={() => exportToJSON(data, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.json` : 'dataset.json')}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -785,14 +1127,14 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               <Download size={14} color="var(--text-muted)" />
             </div>
             <div>
-              <h4 style={{ fontSize: '14.5px', fontWeight: 700 }}>Exportar JSON</h4>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 700 }}>Exportar JSON</h4>
             </div>
           </div>
 
           {/* Export SQL Card */}
           <div
-            className="metric-card"
-            style={{ cursor: 'pointer', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            className="export-card"
+            style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             onClick={() => exportToSQL(data, headers, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.sql` : 'dataset.sql', fileName ? fileName.replace(/\.[a-zA-Z0-9]+$/, '') : 'dataset')}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -800,14 +1142,14 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               <Download size={14} color="var(--text-muted)" />
             </div>
             <div>
-              <h4 style={{ fontSize: '14.5px', fontWeight: 700 }}>Exportar SQL INSERTs</h4>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 700 }}>Exportar SQL INSERTs</h4>
             </div>
           </div>
 
           {/* Export Markdown Card */}
           <div
-            className="metric-card"
-            style={{ cursor: 'pointer', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            className="export-card"
+            style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             onClick={() => exportToMarkdown(data, headers, fileName ? `${fileName.replace(/\.[a-zA-Z0-9]+$/, '')}.md` : 'dataset.md')}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -815,7 +1157,7 @@ export default function OperationsPanel({ data, headers, onUpdateData, fileName,
               <Download size={14} color="var(--text-muted)" />
             </div>
             <div>
-              <h4 style={{ fontSize: '14.5px', fontWeight: 700 }}>Exportar Tabla MD (.md)</h4>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 700 }}>Exportar Tabla MD (.md)</h4>
             </div>
           </div>
         </div>

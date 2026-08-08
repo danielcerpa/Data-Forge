@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Lock } from 'lucide-react';
-import logoSvg from '../data forge.svg';
+import Logo from './Logo';
 
 export default function LandingUploadScreen({ onFileLoaded, onShowNotification }) {
   const [dragActive, setDragActive] = useState(false);
@@ -44,11 +44,11 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
 
         {/* Main Hero Header */}
         <div style={{ textAlign: 'center', marginBottom: '64px' }}>
-          <img src={logoSvg} alt="Data Forge Logo" style={{ width: '110px', height: '110px', objectFit: 'contain', marginBottom: '20px' }} />
-          <h1 style={{ fontSize: '48px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1, color: '#000000', marginBottom: '14px' }}>
+          <Logo size={110} style={{ marginBottom: '20px' }} />
+          <h1 style={{ fontSize: '48px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1, color: 'var(--text-primary)', marginBottom: '14px' }}>
             Data Forge
           </h1>
-          <p style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.02em', color: '#1a1c1d', maxWidth: '640px', margin: '0 auto', lineHeight: 1.3 }}>
+          <p style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-secondary)', maxWidth: '640px', margin: '0 auto', lineHeight: 1.3 }}>
             Donde la evidencia se forja dato a dato.
           </p>
         </div>
@@ -70,30 +70,19 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
             onChange={e => processFile(e.target.files[0])}
           />
 
-          <div style={{ width: '52px', height: '52px', backgroundColor: '#000000', color: '#ffffff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+          <div style={{ width: '52px', height: '52px', backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
             <Upload size={24} />
           </div>
 
-          <h2 style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.02em', color: '#000000', marginBottom: '6px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', marginBottom: '8px' }}>
             Arrastra y suelta tu archivo CSV o XLSX aquí
           </h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px' }}>
-            Soporte para formatos .csv y .xlsx
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+            o <span style={{ color: 'var(--brand-primary)', fontWeight: 600, textDecoration: 'underline' }}>selecciona uno de tus archivos locales</span>
           </p>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
-            <button
-              className="btn-primary"
-              style={{ backgroundColor: '#000000', color: '#ffffff', padding: '10px 24px', fontSize: '13px', borderRadius: 'var(--radius-pill)', cursor: 'pointer' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                fileInputRef.current && fileInputRef.current.click();
-              }}
-            >
-              <Upload size={14} />
-              <span>Seleccionar archivo</span>
-            </button>
-          </div>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+            Soporta formatos .csv, .xls y .xlsx
+          </span>
         </div>
 
         {/* Mensaje de privacidad y seguridad local */}
@@ -103,9 +92,9 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
           justifyContent: 'center', 
           gap: '12px', 
           marginTop: '32px', 
-          color: 'var(--text-muted)', 
+          color: 'var(--text-secondary)', 
           fontSize: '12px',
-          backgroundColor: 'rgba(0, 0, 0, 0.02)',
+          backgroundColor: 'var(--bg-surface-subtle)',
           padding: '12px 18px',
           borderRadius: '10px',
           border: '1px solid var(--border-color)',

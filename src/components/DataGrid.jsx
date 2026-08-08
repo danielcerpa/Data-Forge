@@ -10,7 +10,8 @@ import {
   GitCompare, 
   Combine, 
   X,
-  Eye
+  Eye,
+  HelpCircle
 } from 'lucide-react';
 import { 
   isDatasetEnglishPredominant, 
@@ -18,6 +19,8 @@ import {
   concatenateDatasets 
 } from '../utils/dataSanitizer';
 import { parseFileOrContent } from '../utils/csvEngine';
+import { driver } from 'driver.js';
+import 'driver.js/dist/driver.css';
 
 export default function DataGrid({ 
   data, 
@@ -60,6 +63,61 @@ export default function DataGrid({
   const [secSortDir, setSecSortDir] = useState('asc');
   const [secPage, setSecPage] = useState(1);
   const [secPageSize, setSecPageSize] = useState(10);
+
+  const handleStartTableTour = () => {
+    const driverObj = driver({
+      showProgress: true,
+      popoverClass: 'driverjs-theme',
+      nextBtnText: 'Siguiente',
+      prevBtnText: 'Anterior',
+      doneBtnText: 'Finalizar',
+      steps: [
+        { 
+          element: '.summary-grid', 
+          popover: { 
+            title: 'Resumen Diagnóstico', 
+            description: 'Estas tarjetas te muestran la salud y volumen de tu dataset en tiempo real: el porcentaje de integridad de los datos, el total de anomalías o valores faltantes, el conteo total de filas cargadas y el peso de memoria ocupado.' 
+          } 
+        },
+        { 
+          element: '.search-input-wrapper', 
+          popover: { 
+            title: 'Búsqueda Global', 
+            description: 'Escribe cualquier valor, ID o texto aquí. La tabla se filtrará dinámicamente en tiempo real para mostrar únicamente las filas que coincidan.' 
+          } 
+        },
+        { 
+          element: '.btn-filter-anomalies', 
+          popover: { 
+            title: 'Depuración y Calidad', 
+            description: 'Haz clic aquí para filtrar y aislar únicamente los registros con problemas: valores faltantes (nulos), inconsistencias de formato o errores de calidad detectados por el motor.' 
+          } 
+        },
+        { 
+          element: '.btn-add-record', 
+          popover: { 
+            title: 'Inserción de Datos', 
+            description: 'Presiona este botón para abrir un formulario inteligente. Podrás ingresar un nuevo registro completando los campos con validaciones de tipo en tiempo real.' 
+          } 
+        },
+        { 
+          element: '.table-responsive thead th:nth-child(2)', 
+          popover: { 
+            title: 'Parametrización de Columnas', 
+            description: 'El motor detecta tipos automáticamente. Haz clic aquí para forzar un tipo de parámetro específico: Texto (string), Número (number), Fecha (date), Booleano (boolean) o Categoría (category). También puedes renombrar la columna aquí.' 
+          } 
+        },
+        { 
+          element: '.table-responsive tbody tr:first-child', 
+          popover: { 
+            title: 'Edición en Celdas (Inline)', 
+            description: 'Haz **doble clic** sobre cualquier celda de la tabla para editar su valor directamente. Presiona Enter para confirmar el cambio o Escape para cancelar.' 
+          } 
+        }
+      ]
+    });
+    driverObj.drive();
+  };
   
   // Merge Panel states
   const [showMergePanel, setShowMergePanel] = useState(false);
@@ -219,17 +277,19 @@ export default function DataGrid({
     
     const name = header.toLowerCase();
     const isDateCol = columnTypes[header] === 'date' || name.includes('fecha') || name.includes('date') || name.includes('creado') || name.includes('created');
-    const isTimeCol = name.includes('hora') || name.includes('time');
+    const isTimeCol = (name.includes('hora') || name.includes('time')) && !isDateCol;
 
     if (isDateCol) {
       const strVal = String(val).trim();
-      const isIso = /^\d{4}-\d{2}-\d{2}$/.test(strVal);
-      const isSlashDDMM = /^\d{2}\/\d{2}\/\d{4}$/.test(strVal);
-      const isDashDDMM = /^\d{2}-\d{2}-\d{4}$/.test(strVal);
-      const isSlashYYYYMM = /^\d{4}\/\d{2}\/\d{2}$/.test(strVal);
+      // Extract the date portion to support both pure dates and date-times (split by space or T)
+      const datePart = strVal.split(/[\sT]/)[0];
+      const isIso = /^\d{4}-\d{2}-\d{2}$/.test(datePart);
+      const isSlashDDMM = /^\d{2}\/\d{2}\/\d{4}$/.test(datePart);
+      const isDashDDMM = /^\d{2}-\d{2}-\d{4}$/.test(datePart);
+      const isSlashYYYYMM = /^\d{4}\/\d{2}\/\d{2}$/.test(datePart);
       
       const isValidFormat = isIso || isSlashDDMM || isDashDDMM || isSlashYYYYMM;
-      if (!isValidFormat || !isValidCalendarDate(strVal, isEnglish)) {
+      if (!isValidFormat || !isValidCalendarDate(datePart, isEnglish)) {
         return { type: 'date-format', msg: 'Formato de fecha inconsistente o inválido' };
       }
     }
@@ -374,7 +434,7 @@ export default function DataGrid({
       if (anomaly.type === 'null') {
         return (
           <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-            <span style={{ color: '#ef4444', fontWeight: 700, backgroundColor: '#fef2f2', padding: '0px 6px', borderRadius: '4px', fontSize: '10px', border: '1px solid #fca5a5', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.4' }}>
+            <span style={{ color: '#ef4444', fontWeight: 700, fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.4' }}>
               nulo
             </span>
           </div>
@@ -388,11 +448,7 @@ export default function DataGrid({
             title={anomaly.msg} 
             style={{ 
               color: '#d97706', 
-              backgroundColor: '#fffbeb', 
-              border: '1px solid #fcd34d',
-              borderRadius: '4px',
-              padding: '1px 6px',
-              fontSize: '10px',
+              fontSize: '10.5px',
               fontWeight: 700,
               whiteSpace: 'nowrap'
             }}
@@ -412,11 +468,7 @@ export default function DataGrid({
             title="Esta fila entera tiene valores idénticos a otra fila." 
             style={{ 
               color: '#ef4444', 
-              backgroundColor: '#fef2f2', 
-              border: '1px solid #fca5a5',
-              borderRadius: '4px',
-              padding: '1px 6px',
-              fontSize: '10px',
+              fontSize: '10.5px',
               fontWeight: 700,
               whiteSpace: 'nowrap'
             }}
@@ -450,18 +502,7 @@ export default function DataGrid({
                 key={sheet}
                 type="button"
                 onClick={() => onSwitchSheet(sheet)}
-                style={{
-                  padding: '6px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  border: '1px solid',
-                  transition: 'all 0.15s ease',
-                  backgroundColor: currentSheet === sheet ? '#000000' : '#ffffff',
-                  color: currentSheet === sheet ? '#ffffff' : 'var(--text-secondary)',
-                  borderColor: currentSheet === sheet ? '#000000' : 'var(--border-color)',
-                }}
+                className={`sheet-tab-btn ${currentSheet === sheet ? 'active' : ''}`}
               >
                 {sheet}
               </button>
@@ -474,16 +515,26 @@ export default function DataGrid({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              Comparación y Fusión
+              Comparación en Paralelo
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>
               {secData && secData.length > 0 
                 ? `Comparando dataset principal (${fileName || 'dataset.csv'}) con ${secFileName} (${secData.length} registros)`
-                : 'Carga un segundo dataset para comparar ambos en paralelo e integrarlos.'}
+                : 'Carga un segundo dataset para comparar ambos en paralelo e identificar diferencias.'}
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              className="btn-guide-trigger"
+              style={{ padding: '6px 12.5px', fontSize: '12.5px', height: '38px', borderRadius: 'var(--radius-md)' }}
+              onClick={handleStartTableTour}
+              type="button"
+            >
+              <HelpCircle size={14} />
+              <span>Guía</span>
+            </button>
+
             {(!secData || secData.length === 0) ? (
               <>
                 <label 
@@ -496,7 +547,7 @@ export default function DataGrid({
                     fontSize: '12.5px', 
                     height: '38px',
                     fontWeight: 600,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--bg-surface)',
                     border: '1px solid var(--border-color)',
                     borderRadius: 'var(--radius-md)',
                     padding: '8px 16px'
@@ -526,7 +577,8 @@ export default function DataGrid({
                       fontWeight: 600,
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-color)',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
                       padding: '0 12px',
                       outline: 'none',
                       cursor: 'pointer'
@@ -543,25 +595,6 @@ export default function DataGrid({
               <>
                 <button
                   type="button"
-                  className="btn-primary"
-                  onClick={() => setShowMergePanel(!showMergePanel)}
-                  style={{ 
-                    height: '38px', 
-                    fontSize: '12.5px', 
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    backgroundColor: 'var(--brand-primary)',
-                    color: 'var(--brand-on-primary)'
-                  }}
-                >
-                  <GitCompare size={14} />
-                  <span>Integrar Tablas</span>
-                </button>
-
-                <button
-                  type="button"
                   className="btn-secondary"
                   onClick={() => setHighlightDiffs(!highlightDiffs)}
                   style={{ 
@@ -571,9 +604,9 @@ export default function DataGrid({
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    backgroundColor: highlightDiffs ? 'rgba(250, 74, 20, 0.08)' : '#ffffff',
-                    color: highlightDiffs ? '#fa4a14' : 'var(--text-secondary)',
-                    borderColor: highlightDiffs ? '#fa4a14' : 'var(--border-color)',
+                    backgroundColor: highlightDiffs ? 'var(--bg-surface-elevated)' : 'var(--bg-surface)',
+                    color: highlightDiffs ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                    borderColor: highlightDiffs ? 'var(--brand-primary)' : 'var(--border-color)',
                   }}
                 >
                   <Eye size={14} />
@@ -603,107 +636,6 @@ export default function DataGrid({
             )}
           </div>
         </div>
-
-        {/* Panel de fusión */}
-        {showMergePanel && secData && secData.length > 0 && (
-          <div style={{
-            marginTop: '16px',
-            backgroundColor: 'var(--bg-surface-subtle)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '8px',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong style={{ fontSize: '13.5px' }}>Opciones de Fusión y Concatenación</strong>
-              <button 
-                type="button"
-                onClick={() => setShowMergePanel(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-              <div className="form-group-sm">
-                <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Operación:</label>
-                <select
-                  className="form-select-sm"
-                  style={{ padding: '8px 12px', fontSize: '13px', width: '100%', height: '36px', marginTop: '4px' }}
-                  value={multiFileMode}
-                  onChange={(e) => setMultiFileMode(e.target.value)}
-                >
-                  <option value="join">Fusión (Join) - Añadir columnas de la segunda tabla</option>
-                  <option value="concat">Concatenación (Stack) - Añadir filas debajo de la tabla principal</option>
-                </select>
-              </div>
-
-              {multiFileMode === 'join' && (
-                <>
-                  <div className="form-group-sm">
-                    <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Columna clave (Tabla Principal):</label>
-                    <select
-                      className="form-select-sm"
-                      style={{ padding: '8px 12px', fontSize: '13px', width: '100%', height: '36px', marginTop: '4px' }}
-                      value={primaryJoinKey}
-                      onChange={(e) => setPrimaryJoinKey(e.target.value)}
-                    >
-                      {headers.map(h => (
-                        <option key={h} value={h}>{h}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group-sm">
-                    <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Columna clave (Segunda Tabla):</label>
-                    <select
-                      className="form-select-sm"
-                      style={{ padding: '8px 12px', fontSize: '13px', width: '100%', height: '36px', marginTop: '4px' }}
-                      value={secondaryJoinKey}
-                      onChange={(e) => setSecondaryJoinKey(e.target.value)}
-                    >
-                      {secHeaders.map(h => (
-                        <option key={h} value={h}>{h}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group-sm">
-                    <label style={{ fontSize: '11.5px', fontWeight: 700 }}>Tipo de unión (Join):</label>
-                    <select
-                      className="form-select-sm"
-                      style={{ padding: '8px 12px', fontSize: '13px', width: '100%', height: '36px', marginTop: '4px' }}
-                      value={joinType}
-                      onChange={(e) => setJoinType(e.target.value)}
-                    >
-                      <option value="left">Left Join (Conservar todas las de la izquierda)</option>
-                      <option value="inner">Inner Join (Solo filas coincidentes en ambas)</option>
-                    </select>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={runMerge}
-              style={{
-                alignSelf: 'flex-start',
-                padding: '10px 24px',
-                fontSize: '13px',
-                fontWeight: 700,
-                backgroundColor: 'var(--brand-primary)',
-                color: 'var(--brand-on-primary)'
-              }}
-            >
-              Aplicar Operación y Actualizar Principal
-            </button>
-          </div>
-        )}
       </div>
 
       <div style={{
@@ -723,22 +655,21 @@ export default function DataGrid({
 
             <div className="table-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
-                className="btn-secondary"
+                className="btn-secondary btn-filter-anomalies"
                 onClick={() => { setShowOnlyAnomalies(!showOnlyAnomalies); setPage(1); }}
                 style={{
                   padding: '6px 12px',
                   fontSize: '12px',
-                  backgroundColor: showOnlyAnomalies ? '#fff1f2' : 'var(--bg-surface)',
-                  color: showOnlyAnomalies ? '#ef4444' : 'var(--text-secondary)',
-                  borderColor: showOnlyAnomalies ? '#fca5a5' : 'var(--border-color)',
+                  backgroundColor: showOnlyAnomalies ? 'var(--status-critical-bg)' : 'var(--bg-surface)',
+                  color: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--text-secondary)',
+                  borderColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--border-color)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   cursor: 'pointer',
                   fontWeight: 600,
                   borderRadius: 'var(--radius-md)',
-                  height: '36px',
-                  transition: 'all 0.15s ease'
+                  height: '36px'
                 }}
               >
                 <AlertCircle size={14} color={showOnlyAnomalies ? '#ef4444' : 'var(--text-muted)'} />
@@ -757,27 +688,17 @@ export default function DataGrid({
               </div>
               
               <button
-                className="btn-primary"
+                className="btn-primary btn-add-record"
                 style={{ padding: '6px 12px', fontSize: '12px', height: '36px' }}
                 onClick={onOpenAddRecordModal}
               >
                 <Plus size={12} />
-                <span>Agregar</span>
+                <span>Agregar Fila</span>
               </button>
             </div>
           </div>
 
-          {showOnlyAnomalies && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff5f5', borderBottom: '1px solid #fee2e2', padding: '8px 20px', color: '#b91c1c', fontSize: '11.5px', fontWeight: 600 }}>
-              <span>Filtrando anomalías.</span>
-              <button 
-                onClick={() => setShowOnlyAnomalies(false)} 
-                style={{ background: 'none', border: 'none', color: '#b91c1c', textDecoration: 'underline', cursor: 'pointer', fontWeight: 700 }}
-              >
-                Mostrar todos
-              </button>
-            </div>
-          )}
+
 
           <div className="table-responsive">
             <table className="precision-table">
@@ -811,8 +732,8 @@ export default function DataGrid({
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               outline: 'none',
-                              backgroundColor: '#ffffff',
-                              color: '#000000',
+                              backgroundColor: 'var(--bg-surface)',
+                              color: 'var(--text-primary)',
                               width: '100%'
                             }}
                           />
@@ -851,7 +772,7 @@ export default function DataGrid({
                         key={row._id} 
                         style={{ 
                           backgroundColor: rowBg,
-                          borderLeft: isDup ? '3px solid #fca5a5' : hasAnomaly ? '3px solid #fcd34d' : ''
+                          borderLeft: isDup ? '3px solid var(--status-critical)' : hasAnomaly ? '3px solid var(--status-pending)' : ''
                         }}
                       >
                         {headers.map(header => {
@@ -887,8 +808,8 @@ export default function DataGrid({
                                     fontSize: '12px',
                                     fontFamily: 'inherit',
                                     outline: 'none',
-                                    backgroundColor: '#ffffff',
-                                    color: '#000000'
+                                    backgroundColor: 'var(--bg-surface)',
+                                    color: 'var(--text-primary)'
                                   }}
                                 />
                               ) : (
@@ -913,7 +834,6 @@ export default function DataGrid({
               </span>
               <select
                 className="pagination-select"
-                style={{ fontSize: '11px', height: '28px', padding: '0 4px' }}
                 value={pageSize}
                 onChange={e => {
                   setPageSize(Number(e.target.value));
@@ -1031,7 +951,6 @@ export default function DataGrid({
                 </span>
                 <select
                   className="pagination-select"
-                  style={{ fontSize: '11px', height: '28px', padding: '0 4px' }}
                   value={secPageSize}
                   onChange={e => {
                     setSecPageSize(Number(e.target.value));
