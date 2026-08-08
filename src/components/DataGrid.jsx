@@ -640,7 +640,7 @@ export default function DataGrid({
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: (secData && secData.length > 0) ? '1fr 1fr' : '1fr',
+        gridTemplateColumns: (secData && secData.length > 0) ? 'repeat(auto-fit, minmax(290px, 1fr))' : '1fr',
         gap: '24px',
         width: '100%',
         alignItems: 'start'

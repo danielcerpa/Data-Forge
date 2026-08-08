@@ -800,7 +800,7 @@ export default function OperationsPanel({
   const totalPages = Math.ceil(rowsComparison.length / rowsPerPage) || 1;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 7fr) minmax(0, 3fr)', gap: '20px', width: '100%' }}>
+    <div className="operations-grid">
       {/* Columna 1: Panel de Configuración de Limpieza */}
       <div 
         className="cleaning-config-panel"

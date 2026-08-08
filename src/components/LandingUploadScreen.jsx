@@ -125,38 +125,49 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
     >
       
       {/* Tapestry background pattern - Diagonal Staggered Layout */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        display: 'grid',
-        gridTemplateColumns: 'repeat(20, 1fr)',
-        gridTemplateRows: 'repeat(14, 1fr)',
-        gap: '40px',
-        padding: '0px',
-        opacity: 0.8,
-        pointerEvents: 'none',
-        zIndex: 0,
-        userSelect: 'none',
-        justifyItems: 'center',
-        alignItems: 'center'
-      }}>
-        {Array.from({ length: 280 }).map((_, idx) => {
-          const row = Math.floor(idx / 20);
-          const col = idx % 20;
-          // Checkerboard pattern (row + col is even) to create perfect diagonals
-          const isShow = (row + col) % 2 === 0;
-          if (!isShow) return <div key={idx} style={{ width: '28px', height: '28px' }} />;
+      {(() => {
+        let cols = 20;
+        let rows = 14;
+        if (windowSize.width < 600) {
+          cols = 6;
+          rows = 10;
+        } else if (windowSize.width < 1000) {
+          cols = 12;
+          rows = 12;
+        }
+        const totalCells = cols * rows;
 
-          // Calculate center coordinates of the grid cell in pixels with 0px padding
-          const paddingX = 0;
-          const paddingY = 0;
-          const colWidth = windowSize.width / 20;
-          const rowHeight = windowSize.height / 14;
-          const iconX = colWidth * col + colWidth / 2;
-          const iconY = rowHeight * row + rowHeight / 2;
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'grid',
+            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            gridTemplateRows: `repeat(${rows}, 1fr)`,
+            gap: '40px',
+            padding: '0px',
+            opacity: 0.8,
+            pointerEvents: 'none',
+            zIndex: 0,
+            userSelect: 'none',
+            justifyItems: 'center',
+            alignItems: 'center'
+          }}>
+            {Array.from({ length: totalCells }).map((_, idx) => {
+              const row = Math.floor(idx / cols);
+              const col = idx % cols;
+              // Checkerboard pattern (row + col is even) to create perfect diagonals
+              const isShow = (row + col) % 2 === 0;
+              if (!isShow) return <div key={idx} style={{ width: '28px', height: '28px' }} />;
+
+              // Calculate center coordinates of the grid cell in pixels with 0px padding
+              const colWidth = windowSize.width / cols;
+              const rowHeight = windowSize.height / rows;
+              const iconX = colWidth * col + colWidth / 2;
+              const iconY = rowHeight * row + rowHeight / 2;
 
           // Distance to mouse
           const dx = mousePos.x - iconX;
@@ -188,7 +199,9 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
             </div>
           );
         })}
-      </div>
+          </div>
+        );
+      })()}
 
       <div style={{ maxWidth: '800px', width: '100%', zIndex: 1 }}>
         {/* Main Hero Header */}

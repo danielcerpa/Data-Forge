@@ -5,7 +5,7 @@ export default function AnalysisSummary({ metrics }) {
   const { integrityPct = 98.4, anomalyCount = 0, memoryKB = 12, totalRows = 0, totalCols = 0 } = metrics || {};
 
   return (
-    <div className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+    <div className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '12px' }}>
       {/* Integrity Card */}
       <div className="metric-card" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
