@@ -127,43 +127,22 @@ export function calculateDatasetMetrics(data, headers) {
   const totalCols = headers.length;
   const totalCells = totalRows * totalCols;
   let missingCells = 0;
+  let totalChars = headers.join(',').length + totalRows;
 
-  data.forEach(row => {
-    headers.forEach(col => {
-      const val = row[col];
-      if (val === null || val === undefined || String(val).trim() === '') {
+  for (let i = 0; i < totalRows; i++) {
+    const row = data[i];
+    for (let j = 0; j < totalCols; j++) {
+      const val = row[headers[j]];
+      if (val === null || val === undefined || val === '') {
         missingCells++;
+      } else {
+        totalChars += String(val).length + 1;
       }
-    });
-  });
+    }
+  }
 
   const integrityPct = Math.max(0, Math.round(((totalCells - missingCells) / totalCells) * 1000) / 10);
-  // Estimate actual CSV file size in bytes rather than in-memory JSON size
-  let csvBytes = 0;
-  try {
-    const encoder = new TextEncoder();
-    const headerStr = headers.join(',') + '\n';
-    csvBytes += encoder.encode(headerStr).length;
-    
-    data.forEach(row => {
-      const rowStr = headers.map(col => {
-        const val = row[col];
-        if (val === null || val === undefined) return '';
-        const str = String(val);
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      }).join(',') + '\n';
-      csvBytes += encoder.encode(rowStr).length;
-    });
-  } catch (e) {
-    csvBytes = headers.join(',').length + 1;
-    data.forEach(row => {
-      csvBytes += headers.map(col => String(row[col] ?? '')).join(',').length + 1;
-    });
-  }
-  const memoryKB = Math.round(csvBytes / 1024) || 1;
+  const memoryKB = Math.round(totalChars / 1024) || 1;
 
   return {
     integrityPct,
@@ -176,18 +155,54 @@ export function calculateDatasetMetrics(data, headers) {
 }
 
 /**
+ * Repara secuencias Mojibake y codificaciones garbled comunes en español (ej. Ã± -> ñ, Ã¡ -> á).
+ */
+export function fixSpanishGarbledEncoding(str) {
+  if (typeof str !== 'string' || !str) return str;
+
+  return str
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã‘/g, 'Ñ')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Â¿/g, '¿')
+    .replace(/Â¡/g, '¡')
+    .replace(/Â°/g, '°');
+}
+
+/**
  * Parsea una cadena o archivo CSV usando PapaParse.
  */
 export function parseCSVContent(csvString, options = {}) {
   return new Promise((resolve, reject) => {
-    Papa.parse(csvString, {
+    const sanitizedString = fixSpanishGarbledEncoding(csvString);
+    Papa.parse(sanitizedString, {
       header: true,
       skipEmptyLines: true,
       dynamicTyping: false,
       delimiter: options.delimiter || '',
       complete: (results) => {
-        const headers = results.meta.fields || [];
-        const rawData = results.data || [];
+        const rawHeaders = results.meta.fields || [];
+        const headers = rawHeaders.map(h => fixSpanishGarbledEncoding(h));
+        
+        const rawData = (results.data || []).map(row => {
+          const cleanedRow = {};
+          Object.entries(row).forEach(([k, v]) => {
+            const cleanKey = fixSpanishGarbledEncoding(k);
+            const cleanVal = typeof v === 'string' ? fixSpanishGarbledEncoding(v) : v;
+            cleanedRow[cleanKey] = cleanVal;
+          });
+          return cleanedRow;
+        });
+
         const columnTypes = inferColumnTypes(rawData, headers);
         const normalizedData = normalizeDataset(rawData, headers, columnTypes);
         const metrics = calculateDatasetMetrics(normalizedData, headers);
@@ -225,11 +240,27 @@ export async function parseFileOrContent(fileOrContent, fileName = 'dataset.csv'
       csvString = XLSX.utils.sheet_to_csv(worksheet);
     } else {
       const buffer = await fileOrContent.arrayBuffer();
-      const decoder = new TextDecoder(encoding || 'utf-8');
-      csvString = decoder.decode(buffer);
+      
+      let decoded = '';
+      try {
+        // Step 1: Strict UTF-8 decoding (throws immediately on non-UTF8 bytes like Windows-1252 0xF1 'ñ')
+        const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+        decoded = utf8Decoder.decode(buffer);
+      } catch (e) {
+        // Step 2: Fallback to Windows-1252 / ISO-8859-1 (standard Spanish Windows/Excel ANSI encoding)
+        try {
+          const winDecoder = new TextDecoder('windows-1252');
+          decoded = winDecoder.decode(buffer);
+        } catch (err) {
+          const latinDecoder = new TextDecoder('iso-8859-1');
+          decoded = latinDecoder.decode(buffer);
+        }
+      }
+
+      csvString = fixSpanishGarbledEncoding(decoded);
     }
   } else {
-    csvString = fileOrContent;
+    csvString = fixSpanishGarbledEncoding(String(fileOrContent));
   }
 
   const parsed = await parseCSVContent(csvString, { delimiter });

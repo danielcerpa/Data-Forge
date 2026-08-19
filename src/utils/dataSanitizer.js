@@ -94,69 +94,138 @@ export function detectDateFormatsForColumn(data, col, isEnglish = false) {
   return Array.from(formatsFound);
 }
 
+const ROMAN_MONTHS = {
+  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6,
+  vii: 7, viii: 8, ix: 9, x: 10, xi: 11, xii: 12
+};
+
+function parseRomanMonth(str) {
+  if (!str) return null;
+  const key = String(str).trim().toLowerCase();
+  return ROMAN_MONTHS[key] || null;
+}
+
+function normalizeYear(yearStr) {
+  let y = parseInt(yearStr, 10);
+  if (isNaN(y)) return '2000';
+  if (y < 100) {
+    y = y <= 30 ? 2000 + y : 1900 + y;
+  }
+  return String(y);
+}
+
 /**
- * Estandariza un valor de fecha al formato seleccionado.
+ * Estandariza un valor de fecha al formato seleccionado. Soporta números romanos (ej. 12/vii/03) y años cortos.
  */
 export function standardizeDateValue(val, targetFormat, isEnglish = false) {
   if (val === null || val === undefined || String(val).trim() === '') return '';
   const cleanVal = String(val).trim();
-  
+
   let dateObj = null;
-  
-  // Try YYYY-MM-DD or YYYY/MM/DD
-  let match = cleanVal.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+
+  // 1. Try Roman numeral month: e.g. 12/vii/03, 12-VII-2003, 15/iii/98
+  let match = cleanVal.match(/^(\d{1,2})[-/\.]([ivxIVX]{1,4})[-/\.](\d{2,4})$/);
   if (match) {
-    dateObj = { year: match[1], month: match[2], day: match[3] };
-  } else {
-    // Try DD/MM/YYYY or MM/DD/YYYY
-    match = cleanVal.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+    const rMonth = parseRomanMonth(match[2]);
+    if (rMonth) {
+      dateObj = {
+        year: normalizeYear(match[3]),
+        month: rMonth,
+        day: parseInt(match[1], 10)
+      };
+    }
+  }
+
+  // 1b. Try Roman numeral month first: e.g. vii/12/03, VII-12-2003
+  if (!dateObj) {
+    match = cleanVal.match(/^([ivxIVX]{1,4})[-/\.](\d{1,2})[-/\.](\d{2,4})$/);
+    if (match) {
+      const rMonth = parseRomanMonth(match[1]);
+      if (rMonth) {
+        dateObj = {
+          year: normalizeYear(match[3]),
+          month: rMonth,
+          day: parseInt(match[2], 10)
+        };
+      }
+    }
+  }
+
+  // 2. Try YYYY-MM-DD or YYYY/MM/DD
+  if (!dateObj) {
+    match = cleanVal.match(/^(\d{4})[-/\.](\d{1,2})[-/\.](\d{1,2})$/);
+    if (match) {
+      dateObj = {
+        year: match[1],
+        month: parseInt(match[2], 10),
+        day: parseInt(match[3], 10)
+      };
+    }
+  }
+
+  // 3. Try DD/MM/YYYY or D/M/YY or MM/DD/YYYY
+  if (!dateObj) {
+    match = cleanVal.match(/^(\d{1,2})[-/\.](\d{1,2})[-/\.](\d{2,4})$/);
     if (match) {
       const p1 = parseInt(match[1], 10);
       const p2 = parseInt(match[2], 10);
-      
+      const year = normalizeYear(match[3]);
+
       if (p1 > 12) {
-        dateObj = { year: match[3], month: match[2], day: match[1] }; // DD/MM/YYYY
+        dateObj = { year, month: p2, day: p1 };
       } else if (p2 > 12) {
-        dateObj = { year: match[3], month: match[1], day: match[2] }; // MM/DD/YYYY
+        dateObj = { year, month: p1, day: p2 };
       } else {
         if (isEnglish) {
-          dateObj = { year: match[3], month: match[1], day: match[2] }; // MM/DD/YYYY
+          dateObj = { year, month: p1, day: p2 };
         } else {
-          dateObj = { year: match[3], month: match[2], day: match[1] }; // DD/MM/YYYY
+          dateObj = { year, month: p2, day: p1 };
         }
       }
     }
   }
-  
+
+  // 4. Try Date.parse fallback
   if (!dateObj) {
     const parsed = Date.parse(cleanVal);
     if (!isNaN(parsed)) {
       const d = new Date(parsed);
-      const pad = (n) => String(n).padStart(2, '0');
       dateObj = {
         year: String(d.getFullYear()),
-        month: pad(d.getMonth() + 1),
-        day: pad(d.getDate())
+        month: d.getMonth() + 1,
+        day: d.getDate()
       };
     }
   }
-  
+
   if (!dateObj) return val;
-  
-  const { year, month, day } = dateObj;
-  
+
+  const year = String(dateObj.year);
+  const mNum = parseInt(dateObj.month, 10);
+  const dNum = parseInt(dateObj.day, 10);
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const mPadded = pad(mNum);
+  const dPadded = pad(dNum);
+  const mUnpadded = String(mNum);
+  const dUnpadded = String(dNum);
+
   switch (targetFormat) {
+    case 'D/M/YYYY':
+      return `${dUnpadded}/${mUnpadded}/${year}`;
     case 'DD/MM/YYYY':
-      return `${day}/${month}/${year}`;
+      return `${dPadded}/${mPadded}/${year}`;
+    case 'M/D/YYYY':
+      return `${mUnpadded}/${dUnpadded}/${year}`;
     case 'MM/DD/YYYY':
-      return `${month}/${day}/${year}`;
+      return `${mPadded}/${dPadded}/${year}`;
     case 'DD-MM-YYYY':
-      return `${day}-${month}-${year}`;
+      return `${dPadded}-${mPadded}-${year}`;
     case 'YYYY/MM/DD':
-      return `${year}/${month}/${day}`;
+      return `${year}/${mPadded}/${dPadded}`;
     case 'YYYY-MM-DD':
     default:
-      return `${year}-${month}-${day}`;
+      return `${year}-${mPadded}-${dPadded}`;
   }
 }
 
@@ -243,97 +312,141 @@ export function standardizeTimeValue(val, targetFormat) {
 /**
  * Sanitiza el dataset eliminando duplicados, recortando textos e imputando celdas nulas.
  */
-export function sanitizeDataset(data, headers, options = {}) {
+/**
+ * Single-pass helper for a single row to maximize performance.
+ */
+export function sanitizeRow(row, headers, options = {}, isEnglish = false) {
   const {
-    removeDuplicates = true,
     trimWhitespace = true,
     fillNulls = false,
     nullFillValue = 'N/A',
     standardizeDates = false,
-    columnDateFormats = {}, // { "FechaCol": "YYYY-MM-DD" }
+    columnDateFormats = {},
     standardizeTimes = false,
-    columnTimeFormats = {}, // { "HoraCol": "HH:mm:ss" }
+    columnTimeFormats = {},
     standardizeTextCase = false,
-    textCaseOption = 'none' // 'title', 'upper', 'lower', 'none'
+    textCaseOption = 'none'
   } = options;
 
-  let cleaned = [...data];
+  const newRow = { ...row };
+  for (let i = 0; i < headers.length; i++) {
+    const col = headers[i];
+    let val = newRow[col];
+
+    if (typeof val === 'string') {
+      if (trimWhitespace) {
+        val = val.trim().replace(/\s+/g, ' ');
+      }
+
+      if (standardizeTextCase && textCaseOption !== 'none') {
+        if (textCaseOption === 'upper') {
+          val = val.toUpperCase();
+        } else if (textCaseOption === 'lower') {
+          val = val.toLowerCase();
+        } else if (textCaseOption === 'title') {
+          val = val.toLowerCase().replace(/(?:^|\s)\S/g, a => a.toUpperCase());
+        }
+      }
+    }
+
+    if (val === null || val === undefined || String(val).trim() === '') {
+      if (fillNulls) {
+        val = nullFillValue;
+      }
+    }
+
+    if (standardizeDates && columnDateFormats[col]) {
+      val = standardizeDateValue(val, columnDateFormats[col], isEnglish);
+    }
+
+    if (standardizeTimes && columnTimeFormats[col]) {
+      val = standardizeTimeValue(val, columnTimeFormats[col]);
+    }
+
+    newRow[col] = val;
+  }
+  return newRow;
+}
+
+/**
+ * Sanitiza el dataset eliminando duplicados, recortando textos e imputando celdas nulas en una sola pasada de alto rendimiento.
+ */
+export function sanitizeDataset(data, headers, options = {}) {
+  if (!data || !Array.isArray(data)) return [];
+  const { removeDuplicates = true } = options;
   const isEnglish = isDatasetEnglishPredominant(data, headers);
+  const seen = new Set();
+  const result = [];
 
-  // 1. Trim whitespace & Fill nulls & Text case standardization
-  cleaned = cleaned.map(row => {
-    const newRow = { ...row };
-    headers.forEach(col => {
-      let val = newRow[col];
-
-      if (typeof val === 'string') {
-        if (trimWhitespace) {
-          val = val.trim().replace(/\s+/g, ' ');
-        }
-        
-        if (standardizeTextCase && textCaseOption !== 'none') {
-          if (textCaseOption === 'upper') {
-            val = val.toUpperCase();
-          } else if (textCaseOption === 'lower') {
-            val = val.toLowerCase();
-          } else if (textCaseOption === 'title') {
-            val = val.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.substring(1)).join(' ');
-          }
-        }
+  for (let i = 0; i < data.length; i++) {
+    const cleanedRow = sanitizeRow(data[i], headers, options, isEnglish);
+    
+    if (removeDuplicates) {
+      let fp = '';
+      for (let j = 0; j < headers.length; j++) {
+        fp += String(cleanedRow[headers[j]] ?? '') + '|||';
       }
+      if (seen.has(fp)) continue;
+      seen.add(fp);
+    }
 
-      if (val === null || val === undefined || String(val).trim() === '') {
-        if (fillNulls) {
-          val = nullFillValue;
-        }
-      }
-
-      newRow[col] = val;
-    });
-    return newRow;
-  });
-
-  // 2. Standardize dates per column
-  if (standardizeDates) {
-    cleaned = cleaned.map(row => {
-      const newRow = { ...row };
-      Object.entries(columnDateFormats).forEach(([col, format]) => {
-        if (format && headers.includes(col)) {
-          newRow[col] = standardizeDateValue(newRow[col], format, isEnglish);
-        }
-      });
-      return newRow;
-    });
+    cleanedRow._id = result.length + 1;
+    result.push(cleanedRow);
   }
 
-  // 2.5. Standardize times per column
-  if (standardizeTimes) {
-    cleaned = cleaned.map(row => {
-      const newRow = { ...row };
-      Object.entries(columnTimeFormats).forEach(([col, format]) => {
-        if (format && headers.includes(col)) {
-          newRow[col] = standardizeTimeValue(newRow[col], format);
-        }
-      });
-      return newRow;
-    });
-  }
+  return result;
+}
 
-  // 3. Remove duplicates
-  if (removeDuplicates) {
+/**
+ * Sanitiza el dataset de forma asíncrona por lotes (chunked) reportando progreso en vivo para datasets grandes.
+ */
+export function sanitizeDatasetAsync(data, headers, options = {}, onProgress) {
+  return new Promise((resolve) => {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    const { removeDuplicates = true } = options;
+    const isEnglish = isDatasetEnglishPredominant(data, headers);
     const seen = new Set();
-    cleaned = cleaned.filter(row => {
-      const fingerprint = headers.map(col => String(row[col] ?? '')).join('|||');
-      if (seen.has(fingerprint)) return false;
-      seen.add(fingerprint);
-      return true;
-    });
-  }
+    const result = [];
+    const total = data.length;
+    const chunkSize = 1000;
+    let index = 0;
 
-  return cleaned.map((row, index) => ({
-    ...row,
-    _id: index + 1
-  }));
+    function processChunk() {
+      const end = Math.min(index + chunkSize, total);
+      for (let i = index; i < end; i++) {
+        const cleanedRow = sanitizeRow(data[i], headers, options, isEnglish);
+        
+        if (removeDuplicates) {
+          let fp = '';
+          for (let j = 0; j < headers.length; j++) {
+            fp += String(cleanedRow[headers[j]] ?? '') + '|||';
+          }
+          if (seen.has(fp)) continue;
+          seen.add(fp);
+        }
+
+        cleanedRow._id = result.length + 1;
+        result.push(cleanedRow);
+      }
+
+      index = end;
+      if (onProgress) {
+        onProgress(Math.round((index / total) * 100));
+      }
+
+      if (index < total) {
+        setTimeout(processChunk, 0);
+      } else {
+        resolve(result);
+      }
+    }
+
+    processChunk();
+  });
 }
 
 /**
@@ -347,7 +460,7 @@ export function exportToCSV(data, headers, filename = 'exported_dataset.csv') {
   });
 
   const csv = Papa.unparse({ fields: headers, data: exportable });
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
@@ -510,6 +623,119 @@ export function joinDatasets(primaryData, primaryKey, secondaryData, secondaryKe
     data: finalData,
     headers: allHeaders
   };
+}
+
+/**
+ * Fusiona dos columnas (colA y colB) cuando los datos de una columna están desplazados o en nulos.
+ * Estrategia 'coalesce': si colA está vacía o nula, toma el valor de colB.
+ */
+export function mergeColumns(data, headers, colA, colB, strategy = 'coalesce', separator = ' ') {
+  if (!data || !Array.isArray(data) || !colA || !colB) return { data, headers };
+
+  const newHeaders = headers.filter(h => h !== colB);
+
+  const newData = data.map(row => {
+    const newRow = { ...row };
+    const valA = newRow[colA];
+    const valB = newRow[colB];
+
+    const isValAEmpty = valA === null || valA === undefined || String(valA).trim() === '';
+    const isValBEmpty = valB === null || valB === undefined || String(valB).trim() === '';
+
+    if (strategy === 'coalesce') {
+      if (isValAEmpty && !isValBEmpty) {
+        newRow[colA] = valB;
+      }
+    } else if (strategy === 'concat') {
+      if (!isValAEmpty && !isValBEmpty) {
+        newRow[colA] = `${String(valA).trim()}${separator}${String(valB).trim()}`;
+      } else if (isValAEmpty && !isValBEmpty) {
+        newRow[colA] = String(valB).trim();
+      }
+    }
+
+    delete newRow[colB];
+    return newRow;
+  });
+
+  return {
+    data: newData,
+    headers: newHeaders
+  };
+}
+
+/**
+ * Reordena las columnas de un dataset moviendo una columna de un índice a otro.
+ */
+export function reorderDatasetColumns(headers, fromIndex, toIndex) {
+  if (fromIndex < 0 || fromIndex >= headers.length || toIndex < 0 || toIndex >= headers.length) {
+    return headers;
+  }
+  const result = [...headers];
+  const [moved] = result.splice(fromIndex, 1);
+  result.splice(toIndex, 0, moved);
+  return result;
+}
+
+/**
+ * Reordena y alinea todas las hojas de un libro de Excel al orden estándar de encabezados.
+ */
+export function autoAlignWorkbookSheets(workbookSheets, standardHeaders) {
+  const alignedWorkbook = {};
+  Object.entries(workbookSheets).forEach(([sName, sInfo]) => {
+    const sheetHeaders = sInfo.headers || [];
+    const extraInSheet = sheetHeaders.filter(h => !standardHeaders.includes(h));
+    const finalHeaders = [...standardHeaders, ...extraInSheet];
+
+    const alignedData = sInfo.data.map((row, index) => {
+      const newRow = { _id: index + 1 };
+      finalHeaders.forEach(col => {
+        newRow[col] = row[col] !== undefined ? row[col] : null;
+      });
+      return newRow;
+    });
+
+    alignedWorkbook[sName] = {
+      headers: finalHeaders,
+      data: alignedData,
+      columnTypes: sInfo.columnTypes || {},
+      metrics: sInfo.metrics || {}
+    };
+  });
+
+  return alignedWorkbook;
+}
+
+/**
+ * Intercambia el contenido completo de dos columnas en todas las filas.
+ * Ej. El contenido de la columna Localidad pasa a Fechas y viceversa.
+ */
+export function swapColumnsData(data, col1, col2) {
+  if (!data || !Array.isArray(data) || !col1 || !col2) return data;
+
+  return data.map(row => {
+    const newRow = { ...row };
+    const temp = newRow[col1];
+    newRow[col1] = newRow[col2];
+    newRow[col2] = temp;
+    return newRow;
+  });
+}
+
+/**
+ * Mueve/Reemplaza el contenido de una columna Origen a una columna Destino.
+ */
+export function moveColumnData(data, colSource, colTarget, clearSource = true) {
+  if (!data || !Array.isArray(data) || !colSource || !colTarget) return data;
+
+  return data.map(row => {
+    const newRow = { ...row };
+    newRow[colTarget] = newRow[colSource];
+    if (clearSource) {
+      newRow[colSource] = null;
+    }
+    return newRow;
+  });
 }
 
 /**

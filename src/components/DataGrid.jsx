@@ -11,7 +11,8 @@ import {
   Combine, 
   X,
   Eye,
-  HelpCircle
+  HelpCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   isDatasetEnglishPredominant, 
@@ -70,48 +71,48 @@ export default function DataGrid({
       popoverClass: 'driverjs-theme',
       nextBtnText: 'Siguiente',
       prevBtnText: 'Anterior',
-      doneBtnText: 'Finalizar',
+      doneBtnText: '¡Entendido!',
       steps: [
         { 
           element: '.summary-grid', 
           popover: { 
-            title: 'Resumen Diagnóstico', 
-            description: 'Estas tarjetas te muestran la salud y volumen de tu dataset en tiempo real: el porcentaje de integridad de los datos, el total de anomalías o valores faltantes, el conteo total de filas cargadas y el peso de memoria ocupado.' 
+            title: 'Resumen Rápido de tu Archivo', 
+            description: 'Estas tarjetitas te dicen al momento cómo viene tu archivo: qué tan completo está, cuántos errores o datos faltan y cuántas filas tiene cargadas.' 
           } 
         },
         { 
           element: '.search-input-wrapper', 
           popover: { 
-            title: 'Búsqueda Global', 
-            description: 'Escribe cualquier valor, ID o texto aquí. La tabla se filtrará dinámicamente en tiempo real para mostrar únicamente las filas que coincidan.' 
+            title: 'Buscador al Instante', 
+            description: 'Escribe cualquier palabra, nombre o número para encontrar de inmediato las filas que buscas.' 
           } 
         },
         { 
           element: '.btn-filter-anomalies', 
           popover: { 
-            title: 'Depuración y Calidad', 
-            description: 'Haz clic aquí para filtrar y aislar únicamente los registros con problemas: valores faltantes (nulos), inconsistencias de formato o errores de calidad detectados por el motor.' 
+            title: 'Ver Solo Filas con Errores', 
+            description: 'Presiona este botón para aislar únicamente las celdas vacías o los datos con problemas para revisarlos rápido.' 
           } 
         },
         { 
           element: '.btn-add-record', 
           popover: { 
-            title: 'Inserción de Datos', 
-            description: 'Presiona este botón para abrir un formulario inteligente. Podrás ingresar un nuevo registro completando los campos con validaciones de tipo en tiempo real.' 
+            title: 'Agregar una Nueva Fila', 
+            description: 'Te abre una ventana sencilla para añadir un nuevo registro sin desordenar la estructura de la tabla.' 
           } 
         },
         { 
           element: '.table-responsive thead th:nth-child(2)', 
           popover: { 
-            title: 'Parametrización de Columnas', 
-            description: 'El motor detecta tipos automáticamente. Haz clic aquí para forzar un tipo de parámetro específico: Texto (string), Número (number), Fecha (date), Booleano (boolean) o Categoría (category). También puedes renombrar la columna aquí.' 
+            title: 'Cambiar Nombres o Tipo de Columna', 
+            description: 'Haz clic en el encabezado de cualquier columna para cambiarle el nombre o indicar si es texto, número, fecha o categoría.' 
           } 
         },
         { 
           element: '.table-responsive tbody tr:first-child', 
           popover: { 
-            title: 'Edición en Celdas (Inline)', 
-            description: 'Haz **doble clic** sobre cualquier celda de la tabla para editar su valor directamente. Presiona Enter para confirmar el cambio o Escape para cancelar.' 
+            title: 'Editar Directo en la Celda', 
+            description: 'Haz **doble clic** sobre cualquier celda para corregir un dato al momento directamente en la pantalla.' 
           } 
         }
       ]
@@ -127,38 +128,51 @@ export default function DataGrid({
   const [joinType, setJoinType] = useState('left');
   const [highlightDiffs, setHighlightDiffs] = useState(false);
 
-  // Inline header editing states
-  const [editingHeader, setEditingHeader] = useState(null);
-  const [editHeaderValue, setEditHeaderValue] = useState('');
+  // Rename Column Modal states
+  const [renameModalHeader, setRenameModalHeader] = useState(null);
+  const [renameModalValue, setRenameModalValue] = useState('');
 
-  const handleStartEditHeader = (header) => {
-    setEditingHeader(header);
-    setEditHeaderValue(header);
+  const handleStartRenameHeader = (header) => {
+    setRenameModalHeader(header);
+    setRenameModalValue(header);
   };
 
-  const handleSaveHeader = (oldHeader) => {
-    const newVal = editHeaderValue.trim();
-    if (newVal && newVal !== oldHeader && onRenameColumn) {
-      onRenameColumn(oldHeader, newVal);
+  const handleSaveRenameHeader = () => {
+    const newVal = renameModalValue.trim();
+    if (newVal && newVal !== renameModalHeader && onRenameColumn) {
+      onRenameColumn(renameModalHeader, newVal);
+      if (onShowNotification) {
+        onShowNotification(`Columna renombrada a "${newVal}" con éxito`, "success");
+      }
     }
-    setEditingHeader(null);
+    setRenameModalHeader(null);
   };
 
-  const handleStartEdit = (rowId, header, value) => {
-    setEditingCell({ rowId, header });
-    setEditValue(value === null || value === undefined ? '' : String(value));
+  // Cell Edit Modal states
+  const [editCellModal, setEditCellModal] = useState({ rowId: null, header: null });
+  const [editCellValue, setEditCellValue] = useState('');
+
+  const handleStartEditCell = (rowId, header, value) => {
+    setEditCellModal({ rowId, header });
+    setEditCellValue(value === null || value === undefined ? '' : String(value));
   };
 
-  const handleSaveCell = (rowId, header) => {
-    if (!onUpdateData) return;
+  const handleSaveEditCell = () => {
+    const { rowId, header } = editCellModal;
+    if (!rowId || !header || !onUpdateData) return;
+
     const updatedData = data.map(row => {
       if (row._id === rowId) {
-        return { ...row, [header]: editValue };
+        return { ...row, [header]: editCellValue };
       }
       return row;
     });
+
     onUpdateData(updatedData);
-    setEditingCell({ rowId: null, header: null });
+    setEditCellModal({ rowId: null, header: null });
+    if (onShowNotification) {
+      onShowNotification(`Valor actualizado en columna "${header}"`, "success");
+    }
   };
 
   const handleUploadSecFile = async (e) => {
@@ -483,26 +497,35 @@ export default function DataGrid({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
-      {/* Selector de Hojas Excel */}
+      {/* Selector Prominente de Hojas Excel */}
       {sheetNames && sheetNames.length > 1 && (
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: '12px', 
-          backgroundColor: 'var(--bg-surface)', 
-          padding: '12px 24px', 
-          borderRadius: 'var(--radius-lg)', 
+          backgroundColor: 'var(--bg-surface-subtle)', 
+          padding: '14px 22px', 
+          borderRadius: '14px', 
           border: '1px solid var(--border-color)',
-          boxShadow: 'var(--shadow-sm)'
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.03)'
         }}>
-          <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>Hojas del Libro:</span>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <FileSpreadsheet size={18} color="var(--status-active)" />
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Hoja Activa del Libro ({sheetNames.length} Hojas):
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {sheetNames.map(sheet => (
               <button
                 key={sheet}
                 type="button"
                 onClick={() => onSwitchSheet(sheet)}
                 className={`sheet-tab-btn ${currentSheet === sheet ? 'active' : ''}`}
+                style={{ padding: '6px 16px', fontSize: '12px', borderRadius: '8px' }}
               >
                 {sheet}
               </button>
@@ -658,21 +681,24 @@ export default function DataGrid({
                 className="btn-secondary btn-filter-anomalies"
                 onClick={() => { setShowOnlyAnomalies(!showOnlyAnomalies); setPage(1); }}
                 style={{
-                  padding: '6px 12px',
+                  padding: '6px 14px',
                   fontSize: '12px',
-                  backgroundColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--bg-surface)',
-                  color: showOnlyAnomalies ? '#ffffff' : 'var(--text-secondary)',
+                  backgroundColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--bg-surface-subtle)',
+                  color: showOnlyAnomalies ? '#ffffff' : 'var(--text-primary)',
                   borderColor: showOnlyAnomalies ? 'var(--status-critical)' : 'var(--border-color)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  justifyContent: 'center',
+                  gap: '6px',
                   cursor: 'pointer',
                   fontWeight: 600,
                   borderRadius: 'var(--radius-md)',
-                  height: '36px'
+                  height: '36px',
+                  minWidth: '148px',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
                 }}
               >
-                <AlertCircle size={14} color={showOnlyAnomalies ? '#ffffff' : 'var(--text-muted)'} />
+                <AlertCircle size={15} color={showOnlyAnomalies ? '#ffffff' : 'var(--status-pending)'} />
                 <span>{showOnlyAnomalies ? 'Ver todos' : 'Filtrar anomalías'}</span>
               </button>
 
@@ -705,44 +731,16 @@ export default function DataGrid({
               <thead>
                 <tr>
                   {headers.map(header => {
-                    const isEditingHeader = editingHeader === header;
                     return (
                       <th 
                         key={header} 
-                        onDoubleClick={() => !isEditingHeader && handleStartEditHeader(header)}
-                        onClick={() => !isEditingHeader && handleSort(header)}
+                        onDoubleClick={() => handleStartRenameHeader(header)}
+                        title="Doble clic para renombrar esta columna"
                         style={{ cursor: 'pointer' }}
                       >
-                        {isEditingHeader ? (
-                          <input
-                            type="text"
-                            value={editHeaderValue}
-                            onChange={e => setEditHeaderValue(e.target.value)}
-                            onBlur={() => handleSaveHeader(header)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') handleSaveHeader(header);
-                              if (e.key === 'Escape') setEditingHeader(null);
-                            }}
-                            autoFocus
-                            style={{
-                              padding: '2px 6px',
-                              border: '1px solid var(--border-focus)',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontFamily: 'inherit',
-                              fontWeight: 700,
-                              outline: 'none',
-                              backgroundColor: 'var(--bg-surface)',
-                              color: 'var(--text-primary)',
-                              width: '100%'
-                            }}
-                          />
-                        ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span>{header}</span>
-                            {sortCol === header && (sortDir === 'asc' ? '▲' : '▼')}
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>{header}</span>
+                        </div>
                       </th>
                     );
                   })}
@@ -776,45 +774,20 @@ export default function DataGrid({
                         }}
                       >
                         {headers.map(header => {
-                          const isEditing = editingCell.rowId === row._id && editingCell.header === header;
                           const isDiff = hasDiffValue(header, row._id);
                           return (
                             <td
                               key={header}
-                              onDoubleClick={() => !isEditing && handleStartEdit(row._id, header, row[header])}
+                              onDoubleClick={() => handleStartEditCell(row._id, header, row[header])}
+                              title="Doble clic para editar este valor"
                               style={{ 
-                                cursor: 'cell',
+                                cursor: 'pointer',
                                 color: isDiff ? '#dc2626' : 'inherit',
                                 fontWeight: isDiff ? '700' : 'normal',
                                 backgroundColor: isDiff ? 'rgba(239, 68, 68, 0.05)' : ''
                               }}
                             >
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={editValue}
-                                  onChange={e => setEditValue(e.target.value)}
-                                  onBlur={() => handleSaveCell(row._id, header)}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') handleSaveCell(row._id, header);
-                                    if (e.key === 'Escape') setEditingCell({ rowId: null, header: null });
-                                  }}
-                                  autoFocus
-                                  style={{
-                                    width: '100%',
-                                    padding: '2px 6px',
-                                    border: '1px solid var(--border-focus)',
-                                    borderRadius: '4px',
-                                    fontSize: '12px',
-                                    fontFamily: 'inherit',
-                                    outline: 'none',
-                                    backgroundColor: 'var(--bg-surface)',
-                                    color: 'var(--text-primary)'
-                                  }}
-                                />
-                              ) : (
-                                renderCellContent(row[header], header, row)
-                              )}
+                              {renderCellContent(row[header], header, row)}
                             </td>
                           );
                         })}
@@ -984,6 +957,155 @@ export default function DataGrid({
           </div>
         )}
       </div>
+
+      {/* Modal para Renombrar Columna al hacer doble clic */}
+      {renameModalHeader && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '420px', width: '100%', padding: '24px' }}>
+            <div className="modal-header" style={{ paddingBottom: '14px', borderBottom: '1px solid var(--border-color)', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Renombrar Columna
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setRenameModalHeader(null)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Nombre actual: <strong>{renameModalHeader}</strong>
+              </span>
+
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                  Escribe el nuevo nombre para la columna:
+                </label>
+                <input
+                  type="text"
+                  value={renameModalValue}
+                  onChange={e => setRenameModalValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveRenameHeader();
+                    if (e.key === 'Escape') setRenameModalHeader(null);
+                  }}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-focus)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '20px', paddingTop: '14px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setRenameModalHeader(null)} 
+                style={{ padding: '8px 16px', fontSize: '12.5px', borderRadius: '8px' }}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={handleSaveRenameHeader}
+                disabled={!renameModalValue.trim()}
+                style={{ padding: '8px 18px', fontSize: '12.5px', borderRadius: '8px', fontWeight: 700 }}
+              >
+                Guardar Nombre
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Editar Celda al hacer doble clic */}
+      {editCellModal.rowId && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <div className="modal-header" style={{ paddingBottom: '14px', borderBottom: '1px solid var(--border-color)', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Editar Valor de Celda
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setEditCellModal({ rowId: null, header: null })}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--bg-surface-subtle)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Columna: <strong>{editCellModal.header}</strong></span>
+                <span style={{ color: 'var(--text-muted)' }}>Fila: <strong>#{editCellModal.rowId}</strong></span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                  Contenido de la celda:
+                </label>
+                <textarea
+                  rows={3}
+                  value={editCellValue}
+                  onChange={e => setEditCellValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSaveEditCell();
+                    }
+                    if (e.key === 'Escape') setEditCellModal({ rowId: null, header: null });
+                  }}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-focus)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ marginTop: '20px', paddingTop: '14px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setEditCellModal({ rowId: null, header: null })} 
+                style={{ padding: '8px 16px', fontSize: '12.5px', borderRadius: '8px' }}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={handleSaveEditCell}
+                style={{ padding: '8px 18px', fontSize: '12.5px', borderRadius: '8px', fontWeight: 700 }}
+              >
+                Guardar Valor
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

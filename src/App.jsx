@@ -21,7 +21,13 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = () => {
+    document.documentElement.classList.add('disable-transitions');
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        document.documentElement.classList.remove('disable-transitions');
+      }, 50);
+    });
   };
 
   const [activeTab, setActiveTab] = useState('upload'); // 'upload', 'analysis', 'table', 'visuals', 'editor', 'export'
@@ -85,18 +91,16 @@ export default function App() {
           setSheetNames(sheets);
           setCurrentSheet(sheets[0]);
 
-          // Cargar todas las hojas inicialmente
-          const tempSheets = {};
-          for (const s of sheets) {
-            const parsedSheet = await parseFileOrContent(fileOrContent, fileOrContent.name, '', 'utf-8', s);
-            tempSheets[s] = {
-              headers: parsedSheet.headers,
-              data: parsedSheet.normalizedData,
-              columnTypes: parsedSheet.columnTypes,
-              metrics: parsedSheet.metrics
-            };
-          }
-          setWorkbookSheets(tempSheets);
+          // Lazy Sheet Loading: Cache initial sheet, load others on demand when clicked
+          const initialSheet = sheets[0];
+          setWorkbookSheets({
+            [initialSheet]: {
+              headers: parsed.headers,
+              data: parsed.normalizedData,
+              columnTypes: parsed.columnTypes,
+              metrics: parsed.metrics
+            }
+          });
         } else if (!sheetName) {
           setExcelFile(null);
           setSheetNames([]);
@@ -116,19 +120,22 @@ export default function App() {
   const handleSwitchSheet = async (sheetName) => {
     if (!excelFile) return;
     try {
-      const sheetInfo = workbookSheets[sheetName];
-      if (sheetInfo) {
-        setHeaders(sheetInfo.headers);
-        setData(sheetInfo.data);
-        setColumnTypes(sheetInfo.columnTypes);
-        setMetrics(sheetInfo.metrics);
-      } else {
+      let sheetInfo = workbookSheets[sheetName];
+      if (!sheetInfo) {
         const parsed = await parseFileOrContent(excelFile, excelFile.name, '', 'utf-8', sheetName);
-        setHeaders(parsed.headers);
-        setData(parsed.normalizedData);
-        setColumnTypes(parsed.columnTypes);
-        setMetrics(parsed.metrics);
+        sheetInfo = {
+          headers: parsed.headers,
+          data: parsed.normalizedData,
+          columnTypes: parsed.columnTypes,
+          metrics: parsed.metrics
+        };
+        setWorkbookSheets(prev => ({ ...prev, [sheetName]: sheetInfo }));
       }
+
+      setHeaders(sheetInfo.headers);
+      setData(sheetInfo.data);
+      setColumnTypes(sheetInfo.columnTypes);
+      setMetrics(sheetInfo.metrics);
       setCurrentSheet(sheetName);
       
       // Limpiar comparaciones secundarias al cambiar de hoja para evitar confusión
@@ -292,6 +299,8 @@ export default function App() {
       <Header
         activeTab={currentNavTab}
         setActiveTab={handleHeaderNav}
+        fileName={fileName}
+        rowCount={data ? data.length : 0}
         onOpenUploadModal={() => setActiveTab('upload')}
         theme={theme}
         toggleTheme={toggleTheme}
