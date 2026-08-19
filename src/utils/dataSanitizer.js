@@ -680,17 +680,21 @@ export function reorderDatasetColumns(headers, fromIndex, toIndex) {
 /**
  * Reordena y alinea todas las hojas de un libro de Excel al orden estándar de encabezados.
  */
-export function autoAlignWorkbookSheets(workbookSheets, standardHeaders) {
+export function autoAlignWorkbookSheets(workbookSheets, standardHeaders = []) {
   const alignedWorkbook = {};
+  if (!workbookSheets || typeof workbookSheets !== 'object') return alignedWorkbook;
+
   Object.entries(workbookSheets).forEach(([sName, sInfo]) => {
-    const sheetHeaders = sInfo.headers || [];
+    if (!sInfo) return;
+    const sheetHeaders = Array.isArray(sInfo.headers) ? sInfo.headers : [];
     const extraInSheet = sheetHeaders.filter(h => !standardHeaders.includes(h));
     const finalHeaders = [...standardHeaders, ...extraInSheet];
+    const sourceData = Array.isArray(sInfo.data) ? sInfo.data : [];
 
-    const alignedData = sInfo.data.map((row, index) => {
+    const alignedData = sourceData.map((row, index) => {
       const newRow = { _id: index + 1 };
       finalHeaders.forEach(col => {
-        newRow[col] = row[col] !== undefined ? row[col] : null;
+        newRow[col] = (row && row[col] !== undefined) ? row[col] : null;
       });
       return newRow;
     });

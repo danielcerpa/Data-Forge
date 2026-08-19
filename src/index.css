@@ -530,14 +530,12 @@ button:active {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.2s ease,
               background-color 0.2s ease,
               color 0.2s ease;
 }
 
 .export-btn-pill:hover {
   transform: translateY(-2px);
-  border-color: var(--brand-primary);
   background-color: var(--bg-surface-elevated);
   color: var(--text-primary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);

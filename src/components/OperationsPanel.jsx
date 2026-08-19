@@ -46,6 +46,7 @@ import {
 } from '../utils/dataSanitizer';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
+import { parseFileOrContent } from '../utils/csvEngine';
 
 export default function OperationsPanel({ 
   data, 
@@ -140,12 +141,39 @@ export default function OperationsPanel({
     }
   };
 
-  const handleAlignWorkbookSheetsAction = () => {
-    if (!isExcel || !workbookSheets) return;
-    const alignedWorkbook = autoAlignWorkbookSheets(workbookSheets, headers);
-    onUpdateWorkbook(alignedWorkbook);
-    if (onShowNotification) {
-      onShowNotification(`Alineadas las columnas de las ${sheetNames.length} hojas del libro al orden estándar`, "success");
+  const handleAlignWorkbookSheetsAction = async () => {
+    if (!isExcel) return;
+    try {
+      const fullWorkbookSheets = { ...workbookSheets };
+      if (excelFile && sheetNames && sheetNames.length > 0) {
+        for (const sName of sheetNames) {
+          if (!fullWorkbookSheets[sName]) {
+            const parsed = await parseFileOrContent(excelFile, excelFile.name, '', 'utf-8', sName);
+            fullWorkbookSheets[sName] = {
+              headers: parsed.headers,
+              data: parsed.normalizedData,
+              columnTypes: parsed.columnTypes,
+              metrics: parsed.metrics
+            };
+          }
+        }
+      }
+
+      const alignedWorkbook = autoAlignWorkbookSheets(fullWorkbookSheets, headers);
+      onUpdateWorkbook(alignedWorkbook);
+
+      if (currentSheet && alignedWorkbook[currentSheet]) {
+        onUpdateData(alignedWorkbook[currentSheet].data, alignedWorkbook[currentSheet].headers);
+      }
+
+      if (onShowNotification) {
+        onShowNotification(`Alineadas las columnas de las ${sheetNames.length} hojas del libro al orden estándar`, "success");
+      }
+    } catch (err) {
+      console.error('Error al alinear hojas del libro:', err);
+      if (onShowNotification) {
+        onShowNotification("Error al alinear las hojas del libro", "error");
+      }
     }
   };
 

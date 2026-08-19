@@ -256,18 +256,45 @@ export default function App() {
 
   const handleUpdateWorkbook = (cleanedSheetsData) => {
     const newWorkbookSheets = { ...workbookSheets };
-    Object.entries(cleanedSheetsData).forEach(([sName, cleanedData]) => {
-      if (newWorkbookSheets[sName]) {
-        newWorkbookSheets[sName].data = cleanedData;
-        newWorkbookSheets[sName].metrics = calculateDatasetMetrics(cleanedData, newWorkbookSheets[sName].headers);
+    Object.entries(cleanedSheetsData).forEach(([sName, sheetVal]) => {
+      if (!sheetVal) return;
+
+      // Case A: sheetVal is a full sheet descriptor { headers, data, columnTypes, metrics }
+      if (typeof sheetVal === 'object' && Array.isArray(sheetVal.data)) {
+        const sheetHeaders = sheetVal.headers || newWorkbookSheets[sName]?.headers || headers;
+        newWorkbookSheets[sName] = {
+          ...newWorkbookSheets[sName],
+          headers: sheetHeaders,
+          data: sheetVal.data,
+          columnTypes: sheetVal.columnTypes || newWorkbookSheets[sName]?.columnTypes || {},
+          metrics: sheetVal.metrics || calculateDatasetMetrics(sheetVal.data, sheetHeaders)
+        };
+      } else if (Array.isArray(sheetVal)) {
+        // Case B: sheetVal is directly an array of rows
+        const currentHeaders = newWorkbookSheets[sName]?.headers || headers;
+        newWorkbookSheets[sName] = {
+          ...newWorkbookSheets[sName],
+          data: sheetVal,
+          metrics: calculateDatasetMetrics(sheetVal, currentHeaders)
+        };
       }
     });
     setWorkbookSheets(newWorkbookSheets);
 
     // Actualizar estados locales de la hoja activa
     if (newWorkbookSheets[currentSheet]) {
-      setData(newWorkbookSheets[currentSheet].data);
-      setMetrics(newWorkbookSheets[currentSheet].metrics);
+      if (Array.isArray(newWorkbookSheets[currentSheet].headers)) {
+        setHeaders(newWorkbookSheets[currentSheet].headers);
+      }
+      if (Array.isArray(newWorkbookSheets[currentSheet].data)) {
+        setData(newWorkbookSheets[currentSheet].data);
+      }
+      if (newWorkbookSheets[currentSheet].metrics) {
+        setMetrics(newWorkbookSheets[currentSheet].metrics);
+      }
+      if (newWorkbookSheets[currentSheet].columnTypes) {
+        setColumnTypes(newWorkbookSheets[currentSheet].columnTypes);
+      }
     }
   };
 
