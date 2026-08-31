@@ -178,6 +178,19 @@ export default function DataGrid({
   const handleUploadSecFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    const extension = file.name.split('.').pop().toLowerCase();
+    if (extension !== 'csv' && extension !== 'xlsx' && extension !== 'xls') {
+      if (onShowNotification) onShowNotification("Formato no compatible. Usa .csv o .xlsx", "error");
+      return;
+    }
+
+    const MAX_SAFE_FILE_SIZE = 150 * 1024 * 1024;
+    if (file.size > MAX_SAFE_FILE_SIZE) {
+      if (onShowNotification) onShowNotification("El archivo supera el límite de seguridad (150 MB).", "error");
+      return;
+    }
+
     try {
       const parsed = await parseFileOrContent(file, file.name);
       onSetSecFileDetails(parsed.fileName, parsed.headers, parsed.normalizedData, parsed.columnTypes);

@@ -450,12 +450,27 @@ export function sanitizeDatasetAsync(data, headers, options = {}, onProgress) {
 }
 
 /**
- * Exporta el dataset a formato CSV usando PapaParse.
+ * Sanitiza valores para prevenir inyección de fórmulas CSV/Excel (CWE-1236).
+ * Si el valor es una cadena y comienza con '=', '+', '-', '@', '\t', '\r',
+ * antepone un apóstrofe (') para que Excel/LibreOffice lo interprete como texto literal.
+ */
+export function sanitizeFormulaInjection(val) {
+  if (typeof val !== 'string') return val;
+  if (/^[\=\+\-\@\t\r]/.test(val)) {
+    return `'${val}`;
+  }
+  return val;
+}
+
+/**
+ * Exporta el dataset a formato CSV usando PapaParse de forma segura.
  */
 export function exportToCSV(data, headers, filename = 'exported_dataset.csv') {
   const exportable = data.map(row => {
-    const r = { ...row };
-    delete r._id;
+    const r = {};
+    headers.forEach(h => {
+      r[h] = sanitizeFormulaInjection(row[h]);
+    });
     return r;
   });
 
@@ -491,25 +506,30 @@ export function exportToJSON(data, filename = 'exported_dataset.json') {
   document.body.removeChild(link);
 }
 
+/**
+ * Exporta el dataset a formato Excel (.xlsx) protegiendo contra inyección de fórmulas.
+ */
 export function exportToExcel(data, headers, filename = 'exported_dataset.xlsx', workbookSheets = null) {
   const workbook = XLSX.utils.book_new();
 
+  const prepareData = (rows, hdrs) => {
+    return rows.map(row => {
+      const r = {};
+      hdrs.forEach(h => {
+        r[h] = sanitizeFormulaInjection(row[h]);
+      });
+      return r;
+    });
+  };
+
   if (workbookSheets && Object.keys(workbookSheets).length > 0) {
     Object.entries(workbookSheets).forEach(([sheetName, sheetInfo]) => {
-      const exportable = sheetInfo.data.map(row => {
-        const r = { ...row };
-        delete r._id;
-        return r;
-      });
+      const exportable = prepareData(sheetInfo.data, sheetInfo.headers);
       const worksheet = XLSX.utils.json_to_sheet(exportable, { header: sheetInfo.headers });
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     });
   } else {
-    const exportable = data.map(row => {
-      const r = { ...row };
-      delete r._id;
-      return r;
-    });
+    const exportable = prepareData(data, headers);
     const worksheet = XLSX.utils.json_to_sheet(exportable, { header: headers });
     XLSX.utils.book_append_sheet(workbook, worksheet, "Dataset");
   }
@@ -518,19 +538,20 @@ export function exportToExcel(data, headers, filename = 'exported_dataset.xlsx',
 }
 
 /**
- * Exporta el dataset a sentencias SQL INSERT INTO
+ * Exporta el dataset a sentencias SQL INSERT INTO con identificadores y valores sanitizados.
  */
 export function exportToSQL(data, headers, filename = 'exported_dataset.sql', tableName = 'dataset') {
   const cleanTableName = tableName.replace(/[^a-zA-Z0-9_]/g, '_');
+  const cleanHeaderCols = headers.map(h => `\`${String(h).replace(/`/g, '``')}\``);
   const sqlLines = data.map(row => {
     const vals = headers.map(col => {
       const val = row[col];
       if (val === null || val === undefined) return 'NULL';
-      if (typeof val === 'number') return val;
+      if (typeof val === 'number') return isFinite(val) ? val : 'NULL';
       if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
       return `'${String(val).replace(/'/g, "''")}'`;
     });
-    return `INSERT INTO \`${cleanTableName}\` (${headers.map(h => `\`${h}\``).join(', ')}) VALUES (${vals.join(', ')});`;
+    return `INSERT INTO \`${cleanTableName}\` (${cleanHeaderCols.join(', ')}) VALUES (${vals.join(', ')});`;
   });
 
   const sqlText = sqlLines.join('\n');
@@ -545,15 +566,16 @@ export function exportToSQL(data, headers, filename = 'exported_dataset.sql', ta
 }
 
 /**
- * Exporta el dataset a una tabla Markdown (.md)
+ * Exporta el dataset a una tabla Markdown (.md) escapando saltos de línea y pipes.
  */
 export function exportToMarkdown(data, headers, filename = 'exported_dataset.md') {
-  const headerRow = `| ${headers.join(' | ')} |`;
+  const safeHeaders = headers.map(h => String(h).replace(/\|/g, '\\|').replace(/\r?\n/g, ' '));
+  const headerRow = `| ${safeHeaders.join(' | ')} |`;
   const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
   const dataRows = data.map(row => {
     return `| ${headers.map(col => {
       const val = row[col];
-      return val !== null && val !== undefined ? String(val).replace(/\|/g, '\\|') : '';
+      return val !== null && val !== undefined ? String(val).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>') : '';
     }).join(' | ')} |`;
   });
 

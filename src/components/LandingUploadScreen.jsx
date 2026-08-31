@@ -31,6 +31,14 @@ export default function LandingUploadScreen({ onFileLoaded, onShowNotification }
       }
       return;
     }
+    // Protección contra agotamiento de memoria / Client DoS (> 150 MB)
+    const MAX_SAFE_FILE_SIZE = 150 * 1024 * 1024;
+    if (file.size > MAX_SAFE_FILE_SIZE) {
+      if (onShowNotification) {
+        onShowNotification("El archivo supera el tamaño máximo seguro (150 MB).", "error");
+      }
+      return;
+    }
     onFileLoaded(file, encoding);
   };
 

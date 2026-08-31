@@ -178,6 +178,19 @@ export function fixSpanishGarbledEncoding(str) {
     .replace(/Â°/g, '°');
 }
 
+const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+/**
+ * Sanitiza nombres de columna para prevenir contaminación de prototipos (Prototype Pollution).
+ */
+export function sanitizeHeaderKey(key) {
+  const clean = fixSpanishGarbledEncoding(String(key || ''));
+  if (FORBIDDEN_KEYS.has(clean.toLowerCase().trim())) {
+    return `${clean}_col`;
+  }
+  return clean;
+}
+
 /**
  * Parsea una cadena o archivo CSV usando PapaParse.
  */
@@ -191,12 +204,12 @@ export function parseCSVContent(csvString, options = {}) {
       delimiter: options.delimiter || '',
       complete: (results) => {
         const rawHeaders = results.meta.fields || [];
-        const headers = rawHeaders.map(h => fixSpanishGarbledEncoding(h));
+        const headers = rawHeaders.map(h => sanitizeHeaderKey(h));
         
         const rawData = (results.data || []).map(row => {
           const cleanedRow = {};
           Object.entries(row).forEach(([k, v]) => {
-            const cleanKey = fixSpanishGarbledEncoding(k);
+            const cleanKey = sanitizeHeaderKey(k);
             const cleanVal = typeof v === 'string' ? fixSpanishGarbledEncoding(v) : v;
             cleanedRow[cleanKey] = cleanVal;
           });
